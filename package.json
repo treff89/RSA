@@ -1,0 +1,22 @@
+{
+  "name": "rsa-check",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "In-browser radiographic assessment of reverse shoulder arthroplasty, pyrocarbon hemiarthroplasty and native shoulders (X-ray and CT). Files are anonymised and analysed locally; nothing is uploaded.",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --serve",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@cornerstonejs/codec-charls": "^1.2.7",
+    "@cornerstonejs/codec-openjpeg": "^1.3.6",
+    "dicom-parser": "^1.8.21",
+    "fflate": "^0.8.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

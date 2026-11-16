@@ -1,0 +1,145 @@
+// Web Worker: reading, anonymising, decoding and automatic detection all happen here, on the user's own machine.
+// The worker inherits the page's Content-Security-Policy (connect-src 'none'), so it cannot open a network connection.
+//
+// main → worker                                        worker → main
+//   {type:'scan', files}                                 {type:'scanned', result}
+//   {type:'xray', id}            (DICOM 'x…' / raster 'r…')   {type:'xray', id, image, det}
+//   {type:'ct', seriesId}                                {type:'ct', seriesId, volume, det}
+//   {type:'sample', modality, kind}                      {type:'xray'|'ct', …, sample:true}
+//   {type:'detect', reqId, image}                        {type:'detected', reqId, det}
+// plus {type:'progress', scope, fraction, label} and {type:'error', scope, message}
+import { Intake, setWasmBinaries } from '../dicom/index.js';
+import * as xdet from '../detect/xray.js';
+import * as cdet from '../detect/ct.js';
+import { makePhantom } from '../sample/xray-phantom.js';
+import { makeCtPhantom } from '../sample/ct-phantom.js';
+import charlsWasm from '@cornerstonejs/codec-charls/decodewasm';
+import openjpegWasm from '@cornerstonejs/codec-openjpeg/decodewasm';
+
+setWasmBinaries({ charls: charlsWasm, openjpeg: openjpegWasm });
+
+const intake = new Intake();
+const post = (msg, transfer) => self.postMessage(msg, transfer || []);
+const progress = (scope, fraction, label) => post({ type: 'progress', scope, fraction, label });
+// Error messages come from our own modules and never contain file names or header values.
+const fail = (scope, err) => post({ type: 'error', scope, message: (err && err.message) || String(err) });
+
+/** Automatic detection on a radiograph. Never throws: a failed detection just means manual placement. */
+export function detectXray(image) {
+  const img = { width: image.width, height: image.height, data: image.data };
+  const out = { kind: 'unknown', confidence: 0, reverse: null, head: null, stem: null, side: null, metalFraction: 0, estimates: {}, error: null };
+  try {
+    const c = xdet.classify(img);
+    out.kind = c.kind; out.confidence = c.confidence || 0;
+    out.reverse = c.reverse || null; out.head = c.head || null;
+    out.stem = (c.reverse && c.reverse.stem) || c.stem || null;
+    out.side = (c.reverse && c.reverse.side) || c.side || null;
+    out.metalFraction = c.metal ? c.metal.fraction || 0 : 0;
+    for (const protocol of ['rsa-ap', 'pyc-ap', 'native-ap']) {
+      const applies = (protocol === 'rsa-ap') === (c.kind === 'reverse') || (protocol === 'pyc-ap' && c.kind === 'hemi') || (protocol === 'native-ap' && c.kind === 'native');
+      if (!applies) continue;
+      try { out.estimates[protocol] = xdet.estimateLandmarks(img, c, { protocol }) || {}; } catch { out.estimates[protocol] = {}; }
+    }
+  } catch (e) {
+    out.error = 'Automatic detection failed on this image; place the landmarks by hand.';
+  }
+  return JSON.parse(JSON.stringify(out, (k, v) => (k === 'mask' || ArrayBuffer.isView(v) ? undefined : v)));
+}
+
+export function detectCt(volume) {
+  const out = { metal: null, reverse: null, head: null, error: null };
+  try {
+    out.metal = cdet.detectMetal(volume);
+    if (out.metal && out.metal.present) out.reverse = cdet.detectReverse(volume);
+    if (!out.reverse) {
+      const mode = out.metal && out.metal.present ? 'auto' : 'bone';
+      out.head = cdet.detectHeadSphere(volume, { mode });
+    }
+  } catch (e) {
+    out.error = 'Automatic detection failed on this scan; place the landmarks by hand.';
+  }
+  return JSON.parse(JSON.stringify(out, (k, v) => (ArrayBuffer.isView(v) ? undefined : v)));
+}
+
+async function decodeRaster(bytes) {
+  if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas === 'undefined') throw new Error('This browser cannot decode ordinary image files in the background. Use DICOM files or a current browser.');
+  const bmp = await createImageBitmap(new Blob([bytes]));
+  const MAX = 4096;
+  const k = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+  const cv = new OffscreenCanvas(w, h);
+  const g = cv.getContext('2d', { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0, w, h);
+  bmp.close();
+  const px = g.getImageData(0, 0, w, h).data;
+  const data = new Float32Array(w * h);
+  for (let i = 0, p = 0; i < data.length; i++, p += 4) data[i] = 0.299 * px[p] + 0.587 * px[p + 1] + 0.114 * px[p + 2];
+  return {
+    width: w, height: h, data, min: 0, max: 255, window: { center: 127.5, width: 255 },
+    pixelSpacing: { mm: null, row: null, col: null, source: null, magnification: null, detectorPlane: false, note: '' },
+    meta: { modality: 'IMG', bodyPart: '', laterality: '', viewPosition: '', description: '', burnedInRisk: true, photometric: '', transferSyntax: '' },
+    warnings: ['Ordinary image file: no pixel size is stored, so distances need the implant size. Screenshots and photos often carry the patient\'s name in the picture itself — the app does not send it anywhere, but an exported annotated image would include it.'],
+  };
+}
+
+async function onScan(files) {
+  const sources = files.map((f) => ({ name: f.webkitRelativePath || f.name, size: f.size, read: () => f.arrayBuffer() }));
+  intake.reset();
+  const result = await intake.scan(sources, (p) => progress('scan', p.total ? p.done / p.total : 0, p.message || 'Reading and anonymising files…'));
+  post({ type: 'scanned', result });
+}
+
+async function onXray(id) {
+  progress('load', 0.2, 'Decoding image…');
+  const image = id.startsWith('r') ? await decodeRaster(await intake.readRaster(id)) : await intake.loadRadiograph(id);
+  progress('load', 0.6, 'Looking for the implant…');
+  const det = detectXray(image);
+  post({ type: 'xray', id, image, det }, [image.data.buffer]);
+}
+
+async function onCt(seriesId) {
+  const volume = await intake.buildVolume(seriesId, (p) => progress('load', p.total ? 0.85 * (p.done / p.total) : 0, 'Loading slices…'));
+  progress('load', 0.9, 'Looking for the implant and the humeral head…');
+  const det = detectCt(volume);
+  post({ type: 'ct', seriesId, volume, det }, [volume.data.buffer]);
+}
+
+function onSample(modality, kind) {
+  progress('load', 0.3, 'Building a synthetic example…');
+  if (modality === 'ct') {
+    const { volume, truth } = makeCtPhantom({ kind, side: 'R', versionDeg: kind === 'native' ? -17 : -6, inclinationDeg: kind === 'reverse' ? -4 : 7, subluxationPct: kind === 'native' ? 68 : 54, fat: { supraspinatus: 0.22, infraspinatus: 0.12, subscapularis: 0.04, teresMinor: 0.08, deltoid: 0.05 } });
+    volume.info = { description: 'Synthetic phantom', warnings: [] };
+    const det = detectCt(volume);
+    post({ type: 'ct', seriesId: `sample-${kind}`, volume, det, sample: true, truth: JSON.parse(JSON.stringify(truth, (k, v) => (ArrayBuffer.isView(v) ? undefined : v))) }, [volume.data.buffer]);
+    return;
+  }
+  const ph = makePhantom({ kind, side: 'R', seed: 7 });
+  const d = ph.image.data;
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < d.length; i++) { if (d[i] < min) min = d[i]; if (d[i] > max) max = d[i]; }
+  const image = {
+    width: ph.image.width, height: ph.image.height, data: d, min, max, window: { center: (min + max) / 2, width: max - min },
+    pixelSpacing: { mm: ph.mmPerPx, row: ph.mmPerPx, col: ph.mmPerPx, source: 'PixelSpacing', magnification: null, detectorPlane: false, note: 'Synthetic image: the stored pixel size is exact.' },
+    meta: { modality: 'DX', bodyPart: 'SHOULDER', laterality: 'R', viewPosition: 'AP', description: 'Synthetic phantom', burnedInRisk: false, photometric: 'MONOCHROME2', transferSyntax: '' },
+    warnings: [],
+  };
+  const det = detectXray(image);
+  post({ type: 'xray', id: `sample-${kind}`, image, det, sample: true }, [image.data.buffer]);
+}
+
+if (typeof self !== 'undefined' && typeof self.postMessage === 'function' && typeof WorkerGlobalScope !== 'undefined') {
+  self.onmessage = async (e) => {
+    const m = e.data;
+    try {
+      if (m.type === 'scan') await onScan(m.files);
+      else if (m.type === 'xray') await onXray(m.id);
+      else if (m.type === 'ct') await onCt(m.seriesId);
+      else if (m.type === 'sample') onSample(m.modality, m.kind);
+      else if (m.type === 'detect') post({ type: 'detected', reqId: m.reqId, det: detectXray(m.image) });
+      else if (m.type === 'reset') intake.reset();
+    } catch (err) {
+      if (m.type === 'scan' && err && err.code === 'NOTHING_USABLE') post({ type: 'error', scope: 'scan', message: err.message, result: err.result || null });
+      else fail(m.type === 'scan' ? 'scan' : 'load', err);
+    }
+  };
+}

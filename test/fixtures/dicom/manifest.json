@@ -1,0 +1,578 @@
+{
+ "phiStrings": [
+  "DOE",
+  "JANE",
+  "MRN1234567",
+  "19700101",
+  "ALT-778899",
+  "ELSEWHERE",
+  "ELM STREET",
+  "GREGORY",
+  "TOMMY",
+  "WILSON",
+  "CTSTATION7",
+  "ACC998877",
+  "STUDY4242",
+  "20240305",
+  "SN-55555",
+  "MAPLE",
+  "ScanMaster",
+  "ACME_PRIVATE",
+  "REQ31337",
+  "SPS31337",
+  "1.2.826.0.1.3680043.8.498"
+ ],
+ "uidRoot": "1.2.826.0.1.3680043.8.498.",
+ "cases": {
+  "implicit_le": {
+   "expected": "base",
+   "ts": "1.2.840.10008.1.2",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "explicit_le": {
+   "expected": "base",
+   "ts": "1.2.840.10008.1.2.1",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "deflated": {
+   "expected": "base",
+   "ts": "1.2.840.10008.1.2.1.99",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "rle": {
+   "expected": "base",
+   "ts": "1.2.840.10008.1.2.5",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "jpeg_lossless_70": {
+   "expected": "base",
+   "ts": "1.2.840.10008.1.2.4.70",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "jpeg_lossless_57": {
+   "expected": "base",
+   "ts": "1.2.840.10008.1.2.4.57",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "jpeg_ls": {
+   "expected": "base",
+   "ts": "1.2.840.10008.1.2.4.80",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "jpeg2000": {
+   "expected": "base",
+   "ts": "1.2.840.10008.1.2.4.90",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "explicit_be": {
+   "expected": "base",
+   "ts": "1.2.840.10008.1.2.2",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "signed_padding": {
+   "expected": "signed",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "no_preamble": {
+   "expected": "base",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "reversed": {
+   "expected": "base",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "oblique": {
+   "expected": "base",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0.0,
+    0.0
+   ],
+   "stepY": [
+    0.0,
+    0.5362311101832846,
+    0.4499513267805774
+   ],
+   "stepZ": [
+    0.0,
+    -0.8034845121081741,
+    0.9575555538987225
+   ],
+   "orientation": "oblique"
+  },
+  "gantry_tilt": {
+   "expected": "base",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0.0,
+    0.0
+   ],
+   "stepY": [
+    0.0,
+    0.6761480784023478,
+    -0.18117333157176452
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ],
+   "tiltDeg": 15,
+   "orientation": "axial"
+  },
+  "missing_slice": {
+   "expected": "missing",
+   "dims": [
+    20,
+    16,
+    11
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ],
+   "files": 10
+  },
+  "multiphase": {
+   "expected": "base",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "no_ipp": {
+   "expected": "base",
+   "dims": [
+    20,
+    16,
+    10
+   ]
+  },
+  "unsupported_jpeg": {
+   "unsupported": "JPEG Baseline"
+  },
+  "enhanced": {
+   "expected": "base",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  },
+  "mixed": {
+   "folder": "DOE_JANE_1970",
+   "expected": "mixed_thin",
+   "dims": [
+    16,
+    12,
+    16
+   ],
+   "sliceSpacing": 0.6,
+   "pickSeriesNumber": 3,
+   "rejectedCount": 3,
+   "skippedFiles": 3,
+   "descriptorsCleaned": 2,
+   "burnedInRisk": 1
+  },
+  "zipped": {
+   "expected": "base",
+   "ts": "1.2.840.10008.1.2.4.80",
+   "dims": [
+    20,
+    16,
+    10
+   ],
+   "origin": [
+    -50.0,
+    -30.0,
+    100.0
+   ],
+   "stepX": [
+    0.6,
+    0,
+    0
+   ],
+   "stepY": [
+    0,
+    0.7,
+    0
+   ],
+   "stepZ": [
+    0,
+    0,
+    1.25
+   ]
+  }
+ },
+ "expected": {
+  "base": "expected_base.bin",
+  "signed": "expected_signed.bin",
+  "missing": "expected_missing.bin",
+  "mixed_thin": "expected_mixed_thin.bin"
+ }
+}
