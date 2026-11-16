@@ -141,7 +141,8 @@ function addItem(item) {
   state.items.push(item);
   if (state.cur < 0) {
     // First image: if the detector is confident the study type is different from the one picked, follow it.
-    const k = item.kind === 'xray' ? { reverse: 'reverse', hemi: 'pyc', native: 'native' }[item.det.kind] : item.det.reverse ? 'reverse' : null;
+    // Only a positively identified implant changes the type: "no implant found" may simply be a missed detection.
+    const k = item.kind === 'xray' ? { reverse: 'reverse', hemi: 'pyc' }[item.det.kind] : item.det.reverse ? 'reverse' : null;
     if (k && k !== state.implant && !state.implantLocked && (item.kind === 'ct' || item.det.confidence >= 0.6)) { state.implant = k; state.autoSwitched = true; }
     select(state.items.length - 1);
   } else renderItems();
@@ -175,10 +176,11 @@ function seed(item) {
   if (item.kind === 'xray') {
     const line = (l) => (l && l.a && l.b ? { a: P2(l.a), b: P2(l.b) } : null);
     if (p.id === 'rsa-ap' && d.reverse) {
-      const g = d.reverse.glenosphere;
-      put('gs', { cx: g.cx, cy: g.cy, r: g.r }, 'auto');
-      put('face', line(g.face), 'auto');
-      put('stem', line(d.reverse.stem), 'auto');
+      // A weak dome fit is offered as an estimate to be checked, never as a detection.
+      const g = d.reverse.glenosphere, st = g.score >= 0.6 ? 'auto' : 'estimated';
+      put('gs', { cx: g.cx, cy: g.cy, r: g.r }, st);
+      put('face', line(g.face), st);
+      put('stem', line(d.reverse.stem), st);
     }
     if (p.id !== 'rsa-ap' && d.head && p.view === 'ap') {
       const implantHead = d.head.kind === 'implant';
@@ -618,7 +620,10 @@ function renderStudy(item, b) {
   if (item.kind === 'xray') {
     const seen = { reverse: 'a reverse replacement', hemi: 'a humeral head replacement', native: 'no implant (native shoulder)', unknown: null }[d.kind];
     const want = { reverse: 'reverse', hemi: 'pyc', native: 'native' }[d.kind];
-    if (seen && want !== state.implant && d.confidence >= 0.5) notes.push(`<span>Automatic detection sees ${seen} on this image, not a ${IMPLANTS.find((x) => x.id === state.implant).label.toLowerCase()}. <button class="link" data-act="switch" data-implant="${want}">Switch study type</button></span>`);
+    const weak = d.reverse && d.reverse.glenosphere.score < 0.6;
+    if (weak && state.implant === 'reverse') notes.push('<span>The glenosphere was found with low confidence. Check its circle before reading any number: drag the centre and the edge handle, or place it again with three clicks on the dome outline. Real films where the humeral tray overlaps the dome are the usual reason.</span>');
+    if (!d.reverse && !d.error && state.implant === 'reverse' && d.kind !== 'unknown') notes.push('<span>No glenosphere was found automatically. Place it by hand: press + next to "Glenosphere outline" and click three points on the dome.</span>');
+    if (seen && want !== state.implant && d.confidence >= 0.5 && want !== 'native') notes.push(`<span>Automatic detection sees ${seen} on this image, not a ${IMPLANTS.find((x) => x.id === state.implant).label.toLowerCase()}. <button class="link" data-act="switch" data-implant="${want}">Switch study type</button></span>`);
     else if (state.autoSwitched) notes.push(`<span class="info">Study type set from what was detected on the image (${seen || 'unclear'}). Change it above if that is wrong.</span>`);
     if (d.kind === 'unknown' && !d.error) notes.push('<span>Automatic detection could not make sense of this image. If bone looks dark, press Invert; otherwise place the landmarks by hand.</span>');
     for (const w of item.image.warnings || []) notes.push(`<span>${panel.esc(w)}</span>`);

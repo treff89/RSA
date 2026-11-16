@@ -313,6 +313,7 @@ export default {
         if (l === 'low' && d === 'low') text += ' A construct that is both medial and short leaves the deltoid slack — the combination to worry about for instability and weak elevation.';
         if (l === 'high' && d === 'high') text += ' A construct that is both lateral and long loads the acromion and the soft tissues from two directions.';
       }
+      text += ' Both bands come from a single series of 46 shoulders that larger series have not reproduced, so weigh them accordingly.';
       out.push({ title: 'Lateralisation and distalisation together', status, text });
     }
     if (m.overhang.status !== 'pending' && m.tilt.status !== 'pending') {

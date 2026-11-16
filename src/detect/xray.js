@@ -11,7 +11,7 @@
 // an image of the opposite polarity; { mmPerPx } tightens the radius limits.
 
 import {
-  downsample, gaussianBlur, sobel, percentiles, median, connectedComponents,
+  downsample, gaussianBlur, sobel, percentiles, median, connectedComponents, multiOtsu,
   principalAxes, distanceTransformSq, open as morphOpen, bilinear, fitCircle, fitLine,
 } from './image.js';
 
@@ -103,11 +103,20 @@ function metalInfo(ctx) {
     const v = (m[k - 2] + m[k - 1] + m[k] + m[k + 1] + m[k + 2]) / 5;
     if (v > mb) { mb = v; kb = k; }
   }
-  if (kb < 0 || mb < MIN_STEP) return none(mb);
-  let ka = kb, kc = kb;
-  while (ka > 60 && m[ka - 1] >= 0.8 * mb) ka--;
-  while (kc < 250 && m[kc + 1] >= 0.8 * mb) kc++;
-  const T = (ka + kc) / 2 / 255;
+  let T;
+  if (kb < 0 || mb < MIN_STEP) {
+    // No clean level gap. That is the rule on real, display-processed radiographs: implants are round, so their
+    // brightness falls off towards the edges instead of forming a plateau, and edge enhancement blurs the gap.
+    // Fall back to the top class of a multi-level Otsu split and accept it only if it is a solid, bright body that
+    // stands well clear of its surroundings (see solidBrightBody).
+    T = solidBrightBody(u, w, h, hist, n);
+    if (T === null) return none(mb);
+  } else {
+    let ka = kb, kc = kb;
+    while (ka > 60 && m[ka - 1] >= 0.8 * mb) ka--;
+    while (kc < 250 && m[kc + 1] >= 0.8 * mb) kc++;
+    T = (ka + kc) / 2 / 255;
+  }
   const mask = new Uint8Array(n);
   for (let i = 0; i < n; i++) mask[i] = u[i] > T ? 1 : 0;
   const cc = connectedComponents(mask, w, h, 8);
@@ -137,6 +146,47 @@ function metalInfo(ctx) {
   }
   if (!comps.length) return none(mb);
   return (ctx.metal = { present: true, T, mask, fraction: area / n, score: mb, comps, labels: cc.labels, depth });
+}
+
+/**
+ * Threshold (0..1) of a solid bright body, or null. Candidates are the upper thresholds of 3- and 4-class Otsu
+ * splits; one is accepted when the pixels above it form at least one thick component (not a thin cortex or a
+ * line of text) that is clearly brighter than the ring of tissue around it and reasonably uniform inside.
+ */
+function solidBrightBody(u, w, h, hist, n) {
+  const cands = [];
+  const t3 = multiOtsu(hist, 3), t4 = multiOtsu(hist, 4);
+  if (t3.length === 2) cands.push(t3[1]);
+  if (t4.length === 3) cands.push(t4[2], t4[1]);
+  const minDepth = Math.max(2.5, 0.014 * Math.min(w, h));
+  let best = null;
+  for (const bin of cands) {
+    const T = (bin + 0.5) / 255;
+    if (T < 0.55 || T > 0.97) continue;
+    const mask = new Uint8Array(n);
+    let area = 0;
+    for (let i = 0; i < n; i++) if (u[i] > T) { mask[i] = 1; area++; }
+    const fr = area / n;
+    if (fr < 0.003 || fr > 0.3) continue;
+    const depth = distanceTransformSq(mask, w, h, 0);
+    // thick core = pixels at least minDepth inside the mask
+    let core = 0, sIn = 0, s2In = 0;
+    for (let i = 0; i < n; i++) if (depth[i] >= minDepth * minDepth) { core++; sIn += u[i]; s2In += u[i] * u[i]; }
+    if (core < 0.0015 * n) continue;
+    const mIn = sIn / core, sdIn = Math.sqrt(Math.max(0, s2In / core - mIn * mIn));
+    // ring just outside the mask (2–6 working px away)
+    const out = distanceTransformSq(mask, w, h, 1);
+    let ring = 0, sOut = 0;
+    for (let i = 0; i < n; i++) if (!mask[i] && out[i] >= 4 && out[i] <= 36) { ring++; sOut += u[i]; }
+    if (!ring) continue;
+    const contrast = mIn - sOut / ring;
+    const score = contrast - sdIn;
+    // 0.83: dense native bone forms solid bodies too, but sits lower in the range than an implant (0.78 on the
+    // native phantom against 0.87 on a real reverse film). A false alarm here is cheap — the dome and stem tests
+    // that follow reject bone — whereas a missed implant is not.
+    if (mIn >= 0.83 && T >= 0.6 && contrast >= 0.2 && sdIn <= 0.12 && (!best || score > best.score)) best = { T, score };
+  }
+  return best ? best.T : null;
 }
 
 /**
