@@ -488,7 +488,7 @@ function roiClose() {
   if (d && d.pts.length >= 3) {
     const item = cur();
     const pane = mpr.panes[d.pane];
-    const raster = mpr.samplePlane(d.plane);
+    const raster = mpr.samplePlane(d.plane, null, true);   // nearest voxel: see Mpr.samplePlane
     const values = sampleRoi(raster, d.pts.map((q) => [q.x, q.y]));
     const stats = roiStats(values, d.plane.s * d.plane.s);
     // keep the outline in world mm so it survives pane changes
@@ -964,4 +964,10 @@ function redetect() {
 
 bind();
 // Test hook: lets the end-to-end test read state without scraping the DOM. Holds no patient identifiers.
-window.__rsa = { state, assess: () => (cur() ? assess(cur()) : null), decision, setLm: (id, v) => { setLm(id, v); refresh(); }, select };
+window.__rsa = {
+  state, assess: () => (cur() ? assess(cur()) : null), decision, setLm: (id, v) => { setLm(id, v); refresh(); }, select, reportText,
+  csv: () => buildCsv(bundles()), json: () => buildJson(bundles(), decision(), { implant: state.implant }),
+  screen: (p) => { const r = xview.canvas.getBoundingClientRect(), q = xview.toScreen(p); return { x: r.left + q.x, y: r.top + q.y }; },
+  ctScreen: (paneId, w) => { const pane = mpr.panes[paneId], r = pane.view.canvas.getBoundingClientRect(), q = pane.view.toScreen(mpr.toPane(pane, w)); return { x: r.left + q.x, y: r.top + q.y }; },
+  ctCursor: (w) => mpr.setCursor(w),
+};

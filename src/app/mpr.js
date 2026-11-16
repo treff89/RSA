@@ -157,8 +157,12 @@ export class Mpr {
     return { id, U: p.U.slice(), V: p.V.slice(), N: p.N.slice(), centre: this._planeCentre(p), s: p.s, w: p.w, h: p.h };
   }
 
-  /** Resample an arbitrary plane into an Int16 HU raster. */
-  samplePlane(plane, out) {
+  /**
+   * Resample an arbitrary plane into an Int16 HU raster. `nearest` takes the nearest voxel instead of interpolating:
+   * used for muscle statistics, because interpolation blends neighbouring fat and muscle voxels into intermediate
+   * values and so under-counts fat.
+   */
+  samplePlane(plane, out, nearest = false) {
     const { w, h, s } = plane;
     const data = out || new Int16Array(w * h);
     const [nx, ny, nz] = this.vol.dims;
@@ -178,6 +182,7 @@ export class Mpr {
       let fi = i0[0] + y * dv[0], fj = i0[1] + y * dv[1], fk = i0[2] + y * dv[2];
       for (let x = 0; x < w; x++, q++, fi += du[0], fj += du[1], fk += du[2]) {
         if (fi < 0 || fj < 0 || fk < 0 || fi > nx - 1 || fj > ny - 1 || fk > nz - 1) { data[q] = -1024; continue; }
+        if (nearest) { data[q] = vol[Math.round(fi) + nx * Math.round(fj) + nxy * Math.round(fk)]; continue; }
         const i = fi | 0, j = fj | 0, k = fk | 0;
         const i1 = i < nx - 1 ? 1 : 0, j1 = j < ny - 1 ? nx : 0, k1 = k < nz - 1 ? nxy : 0;
         const a = fi - i, b = fj - j, cz = fk - k;

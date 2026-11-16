@@ -618,15 +618,26 @@ function stemAxis(ctx, pix, body, near) {
     edgeStrength = median(str);
     const good = [];
     for (let i = 0; i < str.length; i++) if (str[i] >= 0.5 * edgeStrength) good.push(pts[2 * i], pts[2 * i + 1]);
+    // Section mid-points run proximal → distal. The proximal ones sit in the metaphyseal flare and under the tray,
+    // where the metal is not symmetric about the stem axis, so the fit is grown from the clean distal 60%: fit
+    // that, then repeatedly take in every mid-point that lies on the line and refit.
     let ln = fitLine(good);
-    if (ln && good.length >= 12) {
-      // one trimming pass
-      const keep = [];
-      const tol = Math.max(0.7, 2.5 * ln.rms);
-      for (let i = 0; i < good.length; i += 2) {
-        if (Math.abs((good[i] - ln.px) * -ln.dy + (good[i + 1] - ln.py) * ln.dx) <= tol) keep.push(good[i], good[i + 1]);
+    if (ln && good.length >= 16) {
+      const nG = good.length / 2;
+      const distal = good.slice(2 * Math.floor(0.4 * nG));
+      let cur = fitLine(distal) || ln;
+      for (let it = 0; it < 4; it++) {
+        const keep = [];
+        const tol = Math.max(0.8, 3 * cur.rms);
+        for (let i = 0; i < good.length; i += 2) {
+          if (Math.abs((good[i] - cur.px) * -cur.dy + (good[i + 1] - cur.py) * cur.dx) <= tol) keep.push(good[i], good[i + 1]);
+        }
+        if (keep.length < 16) break;
+        const next = fitLine(keep);
+        if (!next) break;
+        cur = next;
       }
-      if (keep.length >= 8) ln = fitLine(keep);
+      ln = cur;
     }
     if (ln) {
       const flip = ln.dx * dx + ln.dy * dy < 0 ? -1 : 1;
@@ -789,9 +800,58 @@ function reverseInfo(ctx, opts = {}) {
  * @param {{mmPerPx?:number, invert?:boolean, rRange?:[number,number]}} [opts]
  */
 export function detectReverse(img, opts = {}) {
+  const r = reverseRaw(img, opts);
+  // Canonical orientation: the stem-axis tracker is slightly direction-dependent (up to ~3° between an image and
+  // its mirror), so an image with the humerus on the right of the glenoid is analysed mirrored and mapped back.
+  // That makes the result exactly independent of which shoulder is shown.
+  if (r && r.side === 'right-of-glenoid') {
+    const rm = reverseRaw(mirrored(img), opts);
+    if (rm && rm.side === 'left-of-glenoid') return mirrorReverse(rm, img.width);
+  }
+  return r;
+}
+
+function reverseRaw(img, opts = {}) {
   const ctx = prepare(img, opts);
   const g = reverseInfo(ctx, opts).result;
   return g && g.glenosphere.score >= (opts.minScore ?? 0.3) ? g : null;
+}
+
+const mirrorCache = new WeakMap();
+function mirrored(img) {
+  const hit = mirrorCache.get(img);
+  if (hit && hit.src === img.data) return hit.img;
+  const { width: w, height: h, data } = img;
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) out[row + x] = data[row + w - 1 - x];
+  }
+  const m = { width: w, height: h, data: out };
+  mirrorCache.set(img, { src: data, img: m });
+  return m;
+}
+
+const mx = (p, w) => [w - 1 - p[0], p[1]];
+function mirrorReverse(r, w) {
+  const g = r.glenosphere;
+  const out = {
+    ...r,
+    glenosphere: { ...g, cx: w - 1 - g.cx, face: { a: mx(g.face.a, w), b: mx(g.face.b, w) }, axis: [-g.axis[0], g.axis[1]] },
+    side: r.side === 'left-of-glenoid' ? 'right-of-glenoid' : 'left-of-glenoid',
+  };
+  if (r.stem) {
+    out.stem = { ...r.stem, a: mx(r.stem.a, w), b: mx(r.stem.b, w) };
+    if (r.stem.dir) out.stem.dir = [-r.stem.dir[0], r.stem.dir[1]];
+    if (Array.isArray(r.stem.widths)) out.stem.widths = r.stem.widths.map((s) => ({ ...s, c: s.c && mx(s.c, w), m: s.m && mx(s.m, w), l: s.l && mx(s.l, w) }));
+  }
+  return out;
+}
+
+function mirrorEstimates(est, w) {
+  const out = {};
+  for (const [id, e] of Object.entries(est)) out[id] = e.a ? { ...e, a: mx(e.a, w), b: mx(e.b, w) } : { ...e, x: w - 1 - e.x };
+  return out;
 }
 
 // ------------------------------------------------------------------ head
@@ -1082,6 +1142,15 @@ function profileEdge(pr, sign, mode, minStrength, k = 2) {
  * @returns {Object<string, {x:number,y:number,confidence:number}|{a:number[],b:number[],confidence:number}>}
  */
 export function estimateLandmarks(img, det, opts = {}) {
+  const rev0 = det && (det.glenosphere ? det : det.reverse);
+  if (rev0 && rev0.side === 'right-of-glenoid') {
+    // same canonical-orientation rule as detectReverse
+    return mirrorEstimates(estimateRaw(mirrored(img), mirrorReverse(rev0, img.width), opts), img.width);
+  }
+  return estimateRaw(img, det, opts);
+}
+
+function estimateRaw(img, det, opts = {}) {
   const out = {};
   const protocol = opts.protocol || 'rsa-ap';
   const rev = det && (det.glenosphere ? det : det.reverse);
