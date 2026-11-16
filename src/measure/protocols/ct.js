@@ -171,24 +171,37 @@ export function glenoidGeometry(L) {
   return { centre, frame };
 }
 
-/** Version of the glenoid face: the anterior–posterior rim line projected into the scapular transverse plane. */
+/** Face normal (pointing lateral) from all four rim points: the plane spanned by the AP and SI rim chords. */
+function faceNormal(L, frame) {
+  if (!L.gsup || !L.ginf) return null;
+  let n = v3.unit(v3.cross(v3.sub(L.gp, L.ga), v3.sub(L.gsup, L.ginf)));
+  if (!v3.len(n)) return null;
+  if (v3.dot(n, frame.lat) < 0) n = v3.mul(n, -1);
+  return n;
+}
+
+/**
+ * Glenoid version. With all four rim points it is the version of the face plane's normal (insensitive to where on
+ * the rim the points sit); with only the anterior and posterior points it is the rim line projected into the
+ * scapular transverse plane — the classical Friedman construction.
+ */
 export function glenoidVersion(L) {
   const g = glenoidGeometry(L);
   if (!g) return NaN;
+  const fn = faceNormal(L, g.frame);
+  if (fn) return versionInclination(g.frame, fn).version;
   const w = v3.reject(v3.sub(L.gp, L.ga), g.frame.sup);
   let n = v3.unit(v3.cross(g.frame.sup, w));
   if (v3.dot(n, g.frame.lat) < 0) n = v3.mul(n, -1);
   return Math.atan2(v3.dot(n, g.frame.ant), v3.dot(n, g.frame.lat)) * 180 / Math.PI;
 }
 
-/** Inclination of the glenoid face: the superior–inferior rim line projected into the scapular plane. */
+/** Glenoid inclination: tilt of the face plane's normal within the scapular plane (needs all four rim points). */
 export function glenoidInclination(L) {
   const g = glenoidGeometry(L);
-  if (!g || !L.gsup || !L.ginf) return NaN;
-  const w = v3.reject(v3.sub(L.gsup, L.ginf), g.frame.ant);
-  let n = v3.unit(v3.cross(g.frame.ant, w));
-  if (v3.dot(n, g.frame.lat) < 0) n = v3.mul(n, -1);
-  return Math.atan2(v3.dot(n, g.frame.sup), v3.dot(n, g.frame.lat)) * 180 / Math.PI;
+  if (!g) return NaN;
+  const fn = faceNormal(L, g.frame);
+  return fn ? versionInclination(g.frame, fn).inclination : NaN;
 }
 
 /** Walch (glenoid-referenced) subluxation index in the scapular transverse plane. */
@@ -227,7 +240,7 @@ function glenoidCt({ id, implant, title, short, headLabel, headHelp, extraFindin
         needs: ['ga', 'gp', 'tri'],
         compute: ({ L }) => glenoidVersion(L),
         format: fmtVersion, gauge: { min: -40, max: 15 }, evidence: 'published', refs: ['friedman1992', 'budge2011', 'bercik2016', 'ho2013', 'walch2012'],
-        what: 'Friedman version computed in 3D: the angle between the anterior–posterior glenoid line and the perpendicular to the scapular axis, in the transverse plane of the scapula.',
+        what: 'Friedman version computed in 3D: the angle between the glenoid face and the perpendicular to the scapular axis, in the transverse plane of the scapula. With all four rim points the face is the plane through them; with only the anterior and posterior points it is their line.',
         caveat: `${VERSION_NOTE} On uncorrected 2D slices version differs from this by 5–10° in a third of shoulders.`,
         bands: [
           { upTo: -25, status: 'out', tag: 'Severe retroversion', say: 'Retroversion beyond 25°. An anatomic glenoid cannot be seated here without an augment or graft; the largest biconcave-glenoid series is quoted as finding loosening or instability in over 40% above 27°. This is reverse (or augment) territory.' },
@@ -241,7 +254,7 @@ function glenoidCt({ id, implant, title, short, headLabel, headHelp, extraFindin
         needs: ['ga', 'gp', 'gsup', 'ginf', 'tri'],
         compute: ({ L }) => glenoidInclination(L),
         format: fmtTilt, gauge: { min: -15, max: 35 }, evidence: 'pragmatic', refs: ['boileau2019', 'maurer2012'],
-        what: 'Tilt of the superior–inferior glenoid line relative to the perpendicular to the scapular axis, within the scapular plane. Positive = the glenoid faces upward.',
+        what: 'Tilt of the glenoid face (the plane through the four rim points) relative to the scapular axis, within the scapular plane. Positive = the glenoid faces upward.',
         caveat: 'Referenced to the Friedman axis, not the supraspinatus fossa floor. Without the inferior angle the scapular plane is taken from the scanner axis.',
         bands: [
           { upTo: 10, status: 'good', tag: 'Usual range', say: 'Within the usual range of glenoid inclination.' },

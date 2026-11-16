@@ -7,7 +7,8 @@
 // Frame used for truth version/inclination (same as the measurement code):
 //   lat = unit(glenoidCenter - tri); ant = unit normal of plane(tri, ia, glenoidCenter) with negative y;
 //   sup = ant x lat (flipped so z > 0); version = atan2(dir.ant, dir.lat); inclination = atan2(dir.sup, dir.lat).
-// subluxationPct = 100 * ((headCenter - glenoidCenter).ant + R) / (2R)   (50 = centred; < 50 = posterior).
+// subluxationPct = 100 * (R - (headCenter - glenoidCenter).ant) / (2R): the scapula-referenced index, the share of the
+// head lying posterior to the scapular axis (50 = centred; > 50 = posterior, as in the Walch convention).
 
 const D2R = Math.PI / 180;
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -177,7 +178,7 @@ export function makeCtPhantom(opts = {}) {
   // ---- head / humerus reference positions ------------------------------------------------------------
   let hc = null, headR = null, S0 = null, Dsh = null, n_t = null, Tpt = null, sdir = null, refC, refR;
   if (kind !== 'reverse') {
-    const off = (subPct / 100 - 0.5) * 2 * Rh;
+    const off = -(subPct / 100 - 0.5) * 2 * Rh;   // along +ant; a posteriorly subluxed head (index > 50) moves the other way
     const L = (Rh - 1.0 - off * dot(ant, dir)) / dot(lat, dir);
     hc = add(add(gc, mul(lat, L)), mul(ant, off));
     headR = Rh;

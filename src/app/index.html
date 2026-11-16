@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- No outgoing connections are permitted at all (connect-src 'none'): the browser itself guarantees that
+     images opened on this page cannot be sent anywhere. Everything is bundled; nothing is fetched at runtime. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src blob:; style-src 'self'; img-src 'self' data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="Measure shoulder X-rays and CT scans in your browser: reverse shoulder arthroplasty, pyrocarbon hemiarthroplasty and native shoulders, graded against published values. Files are anonymised and analysed on your own device — nothing is uploaded.">
+<meta name="theme-color" content="#0f1318">
+<title>RSA Check — shoulder arthroplasty radiographic assessment</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css?v=%CSS_HASH%">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./" aria-label="RSA Check home">
+    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><circle cx="13" cy="13" r="8.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M13 4.5v17M19 19l8 9" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+    <span class="brand-name">RSA Check</span>
+  </a>
+  <span class="tagline">Shoulder arthroplasty X-ray &amp; CT assessment</span>
+  <span class="spacer"></span>
+  <span class="privacy-pill" title="This page is served with a security policy that blocks every outgoing network request. Your images are read, anonymised and measured inside this browser tab only.">
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V6H4a1.5 1.5 0 0 0-1.5 1.5v6A1.5 1.5 0 0 0 4 15h8a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12 6h-.5V4.5A3.5 3.5 0 0 0 8 1zm2 5H6V4.5a2 2 0 1 1 4 0z"/></svg>
+    Nothing is uploaded
+  </span>
+  <button id="btn-new" class="btn ghost small" hidden>Open another study</button>
+</header>
+
+<main>
+  <!-- ───────────── Start screen ───────────── -->
+  <section id="intro">
+    <div class="hero">
+      <h1>Measure the film. Get a straight answer.</h1>
+      <p class="lede">Open a shoulder X-ray or CT. The implant is found automatically, you confirm a handful of landmarks,
+        and every parameter is reported with its raw value, colour-coded against the published range, with a frank
+        appraisal of what is and is not within it. Files are anonymised and analysed on this device.</p>
+    </div>
+
+    <div class="types" role="radiogroup" aria-label="What is on the images?">
+      <button class="type on" role="radio" aria-checked="true" data-implant="reverse"><b>Reverse replacement</b><span>Lateralisation, distalisation, glenosphere tilt and overhang, notching, stem fit.</span></button>
+      <button class="type" role="radio" aria-checked="false" data-implant="pyc"><b>Pyrocarbon hemiarthroplasty</b><span>Overstuffing, head centring, glenoid erosion, tuberosity, stem fit.</span></button>
+      <button class="type" role="radio" aria-checked="false" data-implant="native"><b>Native shoulder</b><span>Cuff and arthritis indices, version and wear, muscles — and anatomic versus reverse.</span></button>
+    </div>
+
+    <div id="drop" class="drop" tabindex="0" role="button" aria-label="Choose images">
+      <svg viewBox="0 0 48 48" width="44" height="44" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M24 31V9m0 0-8 8m8-8 8 8M8 31v6a3 3 0 0 0 3 3h26a3 3 0 0 0 3-3v-6"/></svg>
+      <p class="drop-title">Drop X-rays, a CT folder or a .zip here</p>
+      <p class="drop-sub">DICOM radiographs and CT series, or ordinary image files (PNG, JPEG). A whole CD or export folder is fine.</p>
+      <div class="drop-actions">
+        <button id="btn-files" class="btn primary">Choose files</button>
+        <button id="btn-folder" class="btn">Choose folder</button>
+      </div>
+      <input id="in-folder" type="file" webkitdirectory multiple hidden>
+      <input id="in-files" type="file" multiple hidden>
+    </div>
+    <p class="samples">No images to hand? Try a synthetic example:
+      <button class="link" data-sample="xray">X-ray</button> ·
+      <button class="link" data-sample="ct">CT</button>
+      <span class="fine">(computer-generated phantoms of the selected type — not patients)</span>
+    </p>
+
+    <div id="scan-status" class="scan-status" hidden>
+      <div class="bar"><div id="scan-bar" class="bar-fill"></div></div>
+      <p id="scan-label">Reading files…</p>
+    </div>
+    <div id="intro-error" class="alert error" hidden></div>
+
+    <ol class="steps">
+      <li><b>Anonymise.</b> Names, IDs, dates and every other identifying tag are discarded as each file is read. Only pixels and image geometry are kept — in memory, on this device.</li>
+      <li><b>Detect and confirm.</b> Metal implants are found automatically. Bony landmarks are yours to place or confirm: the software says which positions it only estimated.</li>
+      <li><b>Judge.</b> Each measurement is shown as a number, a colour against its published range, the source of that range, and how far the evidence behind it can be trusted.</li>
+    </ol>
+    <p class="fine">For audit, teaching and research. Not a medical device and not for diagnosis; the numbers depend on where the landmarks are put and on the quality of the view.</p>
+  </section>
+
+  <!-- ───────────── Workspace ───────────── -->
+  <section id="workspace" hidden>
+    <div class="stage">
+      <div class="toolbar">
+        <div id="items" class="items" role="tablist" aria-label="Images in this study"></div>
+        <span class="spacer"></span>
+        <div id="tools-xray" class="tools">
+          <label class="tool-field" id="view-field">View <select id="view"><option value="ap">AP (Grashey)</option><option value="axillary">Axillary</option></select></label>
+          <button class="tbtn" id="btn-flip" title="Which side of the picture the humerus is on. Signs of tilt, varus and offsets depend on it.">Humerus: left</button>
+          <button class="tbtn" id="btn-invert" title="Invert black and white. Bone and metal must be bright for automatic detection.">Invert</button>
+          <button class="tbtn" id="btn-lines" title="Show or hide the measurement lines">Lines</button>
+          <button class="tbtn" id="btn-fit" title="Fit the image to the window (double-click)">Fit</button>
+        </div>
+        <div id="tools-ct" class="tools" hidden>
+          <div class="seg" id="ct-window" role="group" aria-label="Window"><button data-win="bone" class="on">Bone</button><button data-win="soft">Soft tissue</button><button data-win="metal">Metal</button></div>
+          <button class="tbtn" id="btn-yview" title="Move to the scapular Y-view level">Y-view level</button>
+        </div>
+      </div>
+      <div id="viewer" class="viewer">
+        <div id="xray-view" class="xray-view"></div>
+        <div id="ct-view" class="ct-view" hidden></div>
+        <div id="progress" class="progress" hidden>
+          <div class="bar"><div id="progress-bar" class="bar-fill"></div></div>
+          <span id="progress-label">Working…</span>
+        </div>
+        <div id="viewer-error" class="alert error overlay" hidden></div>
+      </div>
+      <div id="statusbar" class="statsbar"></div>
+    </div>
+
+    <aside class="panel" aria-label="Assessment">
+      <div class="card" id="card-study">
+        <div class="card-head">
+          <h2>Study</h2>
+          <details id="anon" class="anon"><summary><span class="ok-dot"></span>Anonymised</summary><div id="anon-body" class="anon-body"></div></details>
+        </div>
+        <div class="seg wide" id="implant" role="group" aria-label="Study type">
+          <button data-implant="reverse">Reverse</button><button data-implant="pyc">Pyrocarbon hemi</button><button data-implant="native">Native</button>
+        </div>
+        <div id="detect-note" class="notes"></div>
+        <div id="calib" class="calib"></div>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="landmarks" class="on">Landmarks</button>
+        <button role="tab" data-tab="measure">Measurements</button>
+        <button role="tab" data-tab="muscle" hidden>Muscles</button>
+        <button role="tab" data-tab="decision" hidden>Implant choice</button>
+        <button role="tab" data-tab="appraisal">Appraisal</button>
+      </div>
+
+      <div class="card tabpane" id="tab-landmarks">
+        <div class="card-head"><h2>Landmarks</h2><span id="lm-count" class="value-inline"></span></div>
+        <div class="lm-tools">
+          <button class="btn small primary" id="btn-guide">Place the next one</button>
+          <button class="btn small" id="btn-confirm-all" title="Accept every estimated position as it stands">Confirm estimates</button>
+          <button class="btn small ghost" id="btn-redetect">Detect again</button>
+          <button class="btn small ghost" id="btn-demo" hidden title="Synthetic example only: fills in the remaining landmarks at their known positions">Fill in the rest (example)</button>
+        </div>
+        <div id="lm-list" class="lm-list"></div>
+      </div>
+      <div class="card tabpane" id="tab-measure" hidden>
+        <div class="card-head"><h2>Measurements</h2><span class="legend"><span class="st good">in range</span><span class="st borderline">borderline</span><span class="st out">outside</span><span class="st info">descriptive</span></span></div>
+        <div id="m-list" class="m-list"></div>
+        <div id="f-list" class="f-list"></div>
+      </div>
+      <div class="card tabpane" id="tab-muscle" hidden>
+        <div class="card-head"><h2>Muscle analysis</h2></div>
+        <div id="mu-list"></div>
+      </div>
+      <div class="card tabpane" id="tab-decision" hidden>
+        <div class="card-head"><h2>Anatomic or reverse?</h2></div>
+        <div id="decision"></div>
+      </div>
+      <div class="card tabpane" id="tab-appraisal" hidden>
+        <div class="card-head"><h2>Appraisal</h2></div>
+        <div id="appraisal"></div>
+        <div class="exports">
+          <button class="btn small primary" id="btn-copy">Copy report</button>
+          <button class="btn small" id="btn-txt">Report .txt</button>
+          <button class="btn small" id="btn-csv">Raw data .csv</button>
+          <button class="btn small" id="btn-json">Everything .json</button>
+          <button class="btn small" id="btn-png">Annotated image .png</button>
+        </div>
+      </div>
+    </aside>
+  </section>
+</main>
+
+<footer>
+  <span>RSA Check — runs entirely in your browser. No account, no upload, no tracking.</span>
+  <span>Not a medical device.</span>
+</footer>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js?v=%APP_HASH%" defer></script>
+</body>
+</html>

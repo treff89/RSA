@@ -35,9 +35,8 @@ export function detectXray(image) {
     out.stem = (c.reverse && c.reverse.stem) || c.stem || null;
     out.side = (c.reverse && c.reverse.side) || c.side || null;
     out.metalFraction = c.metal ? c.metal.fraction || 0 : 0;
-    for (const protocol of ['rsa-ap', 'pyc-ap', 'native-ap']) {
-      const applies = (protocol === 'rsa-ap') === (c.kind === 'reverse') || (protocol === 'pyc-ap' && c.kind === 'hemi') || (protocol === 'native-ap' && c.kind === 'native');
-      if (!applies) continue;
+    const protocol = { reverse: 'rsa-ap', hemi: 'pyc-ap', native: 'native-ap' }[c.kind];
+    if (protocol) {
       try { out.estimates[protocol] = xdet.estimateLandmarks(img, c, { protocol }) || {}; } catch { out.estimates[protocol] = {}; }
     }
   } catch (e) {
@@ -82,6 +81,16 @@ async function decodeRaster(bytes) {
   };
 }
 
+/** Display window from the 1st–99th percentile of a sample of the pixels, so saturated metal does not flatten the bone. */
+function softWindow(d) {
+  const step = Math.max(1, Math.floor(d.length / 60000));
+  const v = [];
+  for (let i = 0; i < d.length; i += step) v.push(d[i]);
+  v.sort((x, y) => x - y);
+  const lo = v[Math.floor(v.length * 0.01)], hi = v[Math.floor(v.length * 0.99)];
+  return { center: (lo + hi) / 2, width: Math.max(1e-6, (hi - lo) * 1.15) };
+}
+
 async function onScan(files) {
   const sources = files.map((f) => ({ name: f.webkitRelativePath || f.name, size: f.size, read: () => f.arrayBuffer() }));
   intake.reset();
@@ -118,13 +127,13 @@ function onSample(modality, kind) {
   let min = Infinity, max = -Infinity;
   for (let i = 0; i < d.length; i++) { if (d[i] < min) min = d[i]; if (d[i] > max) max = d[i]; }
   const image = {
-    width: ph.image.width, height: ph.image.height, data: d, min, max, window: { center: (min + max) / 2, width: max - min },
+    width: ph.image.width, height: ph.image.height, data: d, min, max, window: softWindow(d),
     pixelSpacing: { mm: ph.mmPerPx, row: ph.mmPerPx, col: ph.mmPerPx, source: 'PixelSpacing', magnification: null, detectorPlane: false, note: 'Synthetic image: the stored pixel size is exact.' },
     meta: { modality: 'DX', bodyPart: 'SHOULDER', laterality: 'R', viewPosition: 'AP', description: 'Synthetic phantom', burnedInRisk: false, photometric: 'MONOCHROME2', transferSyntax: '' },
     warnings: [],
   };
   const det = detectXray(image);
-  post({ type: 'xray', id: `sample-${kind}`, image, det, sample: true }, [image.data.buffer]);
+  post({ type: 'xray', id: `sample-${kind}`, image, det, sample: true, truth: JSON.parse(JSON.stringify(ph.truth, (k, v) => (ArrayBuffer.isView(v) ? undefined : v))) }, [image.data.buffer]);
 }
 
 if (typeof self !== 'undefined' && typeof self.postMessage === 'function' && typeof WorkerGlobalScope !== 'undefined') {

@@ -434,20 +434,26 @@ function fitDome(volume, S, comp, opts) {
   const ca = coverageAxis(E.pts, fit.sel, fit.c);
   if (fit.rms > 1.0 || ca.coverage < 0.2 || ca.coverage > 0.7 || ca.resultant < 0.3) return null;
   if (fit.r < minR + 0.3 || fit.r > maxR - 0.3) return null;
-  // axis: start from the surface-coverage direction, refine with the metal centroid of the dome cap
+  // Axis: the centroid of the metal lying in the outer shell of the fitted sphere (0.6 R … R − 1 mm), seen from the
+  // centre. A dome's shell is symmetric about its axis, so the centroid direction IS the axis; the baseplate, post
+  // and screws sit near the axis or outside this shell and barely weigh in. (On the synthetic phantoms this is
+  // within 1° where a half-space iteration seeded from surface coverage was 4–7° off.)
   const C = fit.c, R = fit.r;
-  const near = [];
-  for (let p = 0; p < comp.n; p++) {
-    const w = worldOf(volume, comp.idx[p]);
-    const d = sub(w, C);
-    if (Math.abs(d[0]) < R && Math.abs(d[1]) < R && Math.abs(d[2]) < R) { const r = len(d); if (r < R - 1.2) near.push(d); }
-  }
   let axis = ca.dir;
-  for (let it = 0; it < 5 && near.length; it++) {
-    const s = [0, 0, 0]; let m = 0;
-    for (const d of near) if (dot(d, axis) >= 1.5) { s[0] += d[0]; s[1] += d[1]; s[2] += d[2]; m++; }
-    if (m < 50) break;
-    axis = unit(s);
+  {
+    const thr = 0.5 * plateau, h = Math.max(0.6, R / 26), r0 = 0.6 * R, r1 = R - 1;
+    const s = [0, 0, 0];
+    let m = 0;
+    for (let x = -r1; x <= r1; x += h) {
+      for (let y = -r1; y <= r1; y += h) {
+        for (let z = -r1; z <= r1; z += h) {
+          const rr = Math.sqrt(x * x + y * y + z * z);
+          if (rr < r0 || rr > r1) continue;
+          if (S(C[0] + x, C[1] + y, C[2] + z) > thr) { s[0] += x; s[1] += y; s[2] += z; m++; }
+        }
+      }
+    }
+    if (m > 200 && len(s) / m > 0.08 * R) axis = dot(unit(s), ca.dir) > -0.2 ? unit(s) : ca.dir;
   }
   return { center: C, radius: R, rmsMm: fit.rms, coverage: ca.coverage, axis, plateau, score: fit.nIn, resultant: ca.resultant };
 }

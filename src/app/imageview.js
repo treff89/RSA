@@ -296,7 +296,7 @@ export class ImageView {
     if (s.type === 'line' || s.type === 'dim') {
       let a = S(s.a), b = S(s.b);
       if (s.extend) {
-        const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1, e = 4000 * k;
+        const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1, e = Math.max(40 * k, 0.6 * l);
         a = { x: a.x - (dx / l) * e, y: a.y - (dy / l) * e }; b = { x: b.x + (dx / l) * e, y: b.y + (dy / l) * e };
       }
       g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
