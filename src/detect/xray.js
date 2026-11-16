@@ -1142,7 +1142,81 @@ export function classify(img, opts = {}) {
     kind = 'native';
     confidence = head ? 0.45 + 0.5 * head.score : 0.3;
   }
+  // Rescue for real films. The dome search above expects the glenosphere's outline to be free; on many real
+  // radiographs the humeral tray overlaps it and the metal forms one body, so the fit is weak or lands elsewhere.
+  // A gradient-voted circle that is filled with metal and has a long supported arc is then the better candidate.
+  // It carries no back face or axis (those are left to the reader) and is reported with a low score so the
+  // interface shows it as an estimate.
+  if (metal.present && kind !== 'hemi' && (!reverse || reverse.glenosphere.score < 0.5)) {
+    const d = gradientDome(ctx, opts);
+    const g0 = reverse && reverse.glenosphere;
+    const differs = !g0 || Math.hypot(d ? d.cx - g0.cx : 0, d ? d.cy - g0.cy : 0) > 0.3 * g0.r;
+    if (d && differs && d.score > (g0 ? g0.score : 0.3)) {
+      const stem = reverse ? reverse.stem : null;
+      const side = stem ? ((stem.b[0] + stem.a[0]) / 2 < d.cx ? 'left-of-glenoid' : 'right-of-glenoid') : reverse ? reverse.side : null;
+      reverse = {
+        glenosphere: { cx: d.cx, cy: d.cy, r: d.r, score: Math.min(0.55, d.score), face: null, axis: null, rescued: true, arcDeg: d.arcDeg, fill: d.fill },
+        stem, side, metalFraction: metal.fraction,
+      };
+      kind = 'reverse'; confidence = Math.min(0.55, d.score); head = null;
+    }
+  }
   return { kind, confidence, reverse, head, metal };
+}
+
+// Circle voted by edge gradients (bright side inwards) near the metal, kept only if metal fills it.
+function gradientDome(ctx, opts = {}) {
+  const M = metalInfo(ctx);
+  const { w, h } = ctx;
+  const g = gradients(ctx);
+  // uncalibrated: a glenosphere radius is 3% of the short side on a wide film and up to 20% on a tight crop
+  const [rmin, rmax] = radiusRange(ctx, opts, 15.5, 24, 0.03, 0.2);
+  // yard-stick: the gradient on the metal boundary
+  const mb = [];
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      if (M.mask[i] && !(M.mask[i - 1] && M.mask[i + 1] && M.mask[i - w] && M.mask[i + w])) mb.push(g.mag[i]);
+    }
+  }
+  if (mb.length < 30) return null;
+  const gm = median(mb), thr = 0.3 * gm;
+  const px = [], py = [], nx = [], ny = [], wt = [];
+  for (let y = 2; y < h - 2; y++) {
+    for (let x = 2; x < w - 2; x++) {
+      const i = y * w + x, mg = g.mag[i];
+      if (mg < thr) continue;
+      // only edges at the metal: the pixel or a near neighbour is metal
+      if (!(M.mask[i] || M.mask[i - 2] || M.mask[i + 2] || M.mask[i - 2 * w] || M.mask[i + 2 * w])) continue;
+      px.push(x); py.push(y); nx.push(g.gx[i] / mg); ny.push(g.gy[i] / mg); wt.push(Math.min(1, mg / gm));
+    }
+  }
+  if (px.length < 40) return null;
+  const cands = houghCircles(ctx, { px, py, nx, ny, wt, n: px.length }, rmin, rmax, 10);
+  const pass = [];
+  for (const c of cands) {
+    // metal fill of the inner disc
+    let inside = 0, tot = 0;
+    const R = 0.85 * c.r;
+    for (let y = Math.max(0, Math.floor(c.cy - R)); y <= Math.min(h - 1, Math.ceil(c.cy + R)); y++) {
+      for (let x = Math.max(0, Math.floor(c.cx - R)); x <= Math.min(w - 1, Math.ceil(c.cx + R)); x++) {
+        if ((x - c.cx) ** 2 + (y - c.cy) ** 2 > R * R) continue;
+        tot++; if (M.mask[y * w + x]) inside++;
+      }
+    }
+    const fill = tot ? inside / tot : 0;
+    if (fill < 0.72) continue;
+    const { sup } = arcSupport(ctx, M, c.cx, c.cy, c.r, 0.35 * gm);
+    let arc = 0;
+    for (let k = 0; k < 360; k++) if (sup[k] === 1) arc++;
+    if (arc < 100) continue;
+    pass.push({ cx: ctx.toFull(c.cx), cy: ctx.toFull(c.cy), r: c.r * ctx.f, score: Math.min(1, arc / 220) * fill, arcDeg: arc, fill });
+  }
+  if (!pass.length) return null;
+  // The rounded stem tip, screw heads and the tray corner are also metal-filled arcs, but several times smaller
+  // than the dome: among the well-supported circles take the largest.
+  const top = Math.max(...pass.map((c) => c.score));
+  return pass.filter((c) => c.score >= 0.5 * top).sort((a, b) => b.r - a.r)[0];
 }
 
 // ------------------------------------------------------------------ landmark estimates
@@ -1193,6 +1267,7 @@ function profileEdge(pr, sign, mode, minStrength, k = 2) {
  */
 export function estimateLandmarks(img, det, opts = {}) {
   const rev0 = det && (det.glenosphere ? det : det.reverse);
+  if (rev0 && rev0.glenosphere && !rev0.glenosphere.face) return {};   // a rescued circle has no face to work from
   if (rev0 && rev0.side === 'right-of-glenoid') {
     // same canonical-orientation rule as detectReverse
     return mirrorEstimates(estimateRaw(mirrored(img), mirrorReverse(rev0, img.width), opts), img.width);

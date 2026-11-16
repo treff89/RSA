@@ -58,9 +58,12 @@ Detection is classical image analysis (no machine-learning model, nothing downlo
   within 0.1° on radiographs; glenosphere centre within 0.2 mm, axis within 1° and version/inclination within 0.5° on
   CT; humeral head within 0.1 mm.
 * On **real images** it has barely been tested. One openly licensed reverse-shoulder radiograph (Wikimedia Commons)
-  was tried during development: the metal was found, but the glenosphere circle was placed wrongly because the
-  humeral tray overlapped the dome, and it was (correctly) reported as low confidence. Expect to place the glenosphere
-  yourself on some films — three clicks on the dome outline. No real CT has been tested.
+  was tried during development. It exposed two ways real films differ from the phantoms — implants are round, so
+  their brightness has no plateau, and the humeral tray overlaps the glenosphere so the metal forms one body — and
+  both now have a fallback. On that film the glenosphere circle is found and offered as a *low-confidence estimate*;
+  its back face is not found and must be placed (two clicks), and the stem axis is a few degrees off and marked for
+  checking. One film is not validation: expect to correct or place the implant landmarks yourself on some images.
+  No real CT has been tested.
 * Treat automatic results as a head start, not a measurement.
 
 ## How the numbers are judged
