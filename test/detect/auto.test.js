@@ -59,7 +59,8 @@ test('coloured overlay text is blanked from a screenshot, grey film is kept', ()
   for (let y = 10; y < 14; y++) for (let x = 10; x < 30; x++) { const p = 4 * (y * w + x); rgba[p] = 0; rgba[p + 1] = 160; rgba[p + 2] = 230; }   // cyan "text"
   const { gray, blanked } = grayWithoutOverlay(rgba, w, h);
   assert.ok(blanked >= 80);
-  assert.equal(gray[12 * w + 20], 0, 'text pixel blanked');
-  assert.equal(gray[8 * w + 20], 0, 'fringe blanked');
+  // blanked pixels are filled in from the surrounding film, so the text is gone without leaving a black hole
+  assert.ok(Math.abs(gray[12 * w + 20] - 120) < 0.5, 'text pixel replaced by its surroundings');
+  assert.ok(Math.abs(gray[8 * w + 20] - 120) < 0.5, 'fringe replaced by its surroundings');
   assert.ok(Math.abs(gray[30 * w + 45] - 120) < 0.5, 'film untouched');
 });

@@ -53,6 +53,7 @@ export const PHANTOM_DEFAULTS = Object.freeze({
   acromionLateral: 27, // mm lateral extent of the acromion from the glenoid centre
   // image formation
   noise: 0.012, // sd of additive noise (fraction of full scale)
+  trabecular: 0.3, // relative amplitude of trabecular texture in bone (real bone is never uniform)
   blurMm: 0.3,
   vignette: 0.1,
   metalLevel: 1,
@@ -421,6 +422,19 @@ export function makePhantom(options = {}) {
   }
   soft = gaussianBlur(soft, gw, gh, 1.6);
 
+  // ---------------------------------------------------------------- trabecular texture
+  // Band-limited random field on a 1.4 mm lattice (its own random stream, so nothing else in the picture changes).
+  const tcell = 1.4, tw = Math.ceil((W * mm) / tcell) + 3, th = Math.ceil((H * mm) / tcell) + 3;
+  const trnd = mulberry32(p.seed * 104729 + 7);
+  let tex = new Float32Array(tw * th);
+  for (let i = 0; i < tex.length; i++) tex[i] = trnd() * 2 - 1;
+  tex = gaussianBlur(tex, tw, th, 0.7);
+  { let m = 0; for (let i = 0; i < tex.length; i++) m = Math.max(m, Math.abs(tex[i])); for (let i = 0; i < tex.length; i++) tex[i] /= m || 1; }
+  const texAt = (ix, iy) => {
+    const gxf = (ix * mm) / tcell + 1, gyf = (iy * mm) / tcell + 1, x0 = Math.floor(gxf), y0 = Math.floor(gyf), fx = gxf - x0, fy = gyf - y0, g = y0 * tw + x0;
+    return (tex[g] * (1 - fx) + tex[g + 1] * fx) * (1 - fy) + (tex[g + tw] * (1 - fx) + tex[g + tw + 1] * fx) * fy;
+  };
+
   // ---------------------------------------------------------------- compose
   const out = new Float32Array(N);
   const cxm = (W - 1) / 2, cym = (H - 1) / 2, rr = cxm * cxm + cym * cym;
@@ -431,7 +445,7 @@ export function makePhantom(options = {}) {
       const g = gy0 * gw + gx0;
       const s = (soft[g] * (1 - fx) + soft[g + 1] * fx) * (1 - fy) + (soft[g + gw] * (1 - fx) + soft[g + gw + 1] * fx) * fy;
       const i = iy * W + ix;
-      let t = 0.04 + 0.34 * Math.max(0, s) + att[i];
+      let t = 0.04 + 0.34 * Math.max(0, s) + att[i] * (1 + p.trabecular * texAt(ix, iy));
       t *= 1 - p.vignette * (((ix - cxm) ** 2 + (iy - cym) ** 2) / rr);
       if (t > 0.8) t = 0.8 + 0.12 * (1 - Math.exp(-(t - 0.8) / 0.12));
       const mc = metal[i];

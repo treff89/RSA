@@ -16,6 +16,9 @@ export function grayWithoutOverlay(rgba, width, height, grow = 3) {
     const mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
     if (mx - mn > Math.max(18, 0.2 * mx)) { col[i] = 1; any++; }
   }
+  // A photograph of a film (or a film with a colour cast) is coloured all over. Overlay text never covers more than a
+  // few per cent of a picture, so when colour is widespread nothing is blanked: the picture is simply made grey.
+  if (any > 0.12 * n) any = 0, col.fill(0);
   let mask = col;
   if (any && grow > 0) {
     // separable box dilation
@@ -41,5 +44,49 @@ export function grayWithoutOverlay(rgba, width, height, grow = 3) {
     if (mask[i]) { blanked++; continue; }
     gray[i] = 0.299 * rgba[p] + 0.587 * rgba[p + 1] + 0.114 * rgba[p + 2];
   }
+  if (blanked) inpaint(gray, mask, width, height);
   return { gray, blanked };
+}
+
+/**
+ * Fill masked pixels from their surroundings, working inwards from the edge of each masked patch (each pixel takes
+ * the mean of its already-known 8-neighbours). Removed text then leaves a smooth patch instead of a black hole, and
+ * annotation lines drawn across an implant do not cut it in two for the detector.
+ */
+function inpaint(gray, mask, w, h) {
+  const n = w * h;
+  const known = new Uint8Array(n);
+  for (let i = 0; i < n; i++) known[i] = mask[i] ? 0 : 1;
+  let front = [];
+  const isFront = (i) => {
+    const x = i % w, y = (i - x) / w;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if ((dx || dy) && xx >= 0 && yy >= 0 && xx < w && yy < h && known[yy * w + xx]) return true;
+    }
+    return false;
+  };
+  for (let i = 0; i < n; i++) if (!known[i] && isFront(i)) front.push(i);
+  while (front.length) {
+    const vals = new Float32Array(front.length);
+    front.forEach((i, k) => {
+      const x = i % w, y = (i - x) / w;
+      let s = 0, c = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if ((dx || dy) && xx >= 0 && yy >= 0 && xx < w && yy < h && known[yy * w + xx]) { s += gray[yy * w + xx]; c++; }
+      }
+      vals[k] = c ? s / c : 0;
+    });
+    front.forEach((i, k) => { gray[i] = vals[k]; known[i] = 1; });
+    const next = new Set();
+    for (const i of front) {
+      const x = i % w, y = (i - x) / w;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx >= 0 && yy >= 0 && xx < w && yy < h && !known[yy * w + xx]) next.add(yy * w + xx);
+      }
+    }
+    front = [...next];
+  }
 }

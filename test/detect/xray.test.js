@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makePhantom } from '../../src/sample/xray-phantom.js';
-import { classify, detectReverse, detectMetal, estimateLandmarks } from '../../src/detect/xray.js';
+import { classify, detectReverse, detectMetal, detectHead, estimateLandmarks } from '../../src/detect/xray.js';
 
 const deg = (v) => Math.atan2(v[1], v[0]) * 180 / Math.PI;
 const lineAngle = (l) => { let a = deg([l.b[0] - l.a[0], l.b[1] - l.a[1]]); if (a < 0) a += 180; return a; };
@@ -46,21 +46,20 @@ for (const o of REVERSE) {
   });
 }
 
-test('hemiarthroplasty and native phantoms: head circle, and no false glenosphere', () => {
+// The app now uses this module only for detectHead (the fallback head circle); implant classification lives in
+// auto.js and is tested in auto.test.js.
+test('head circle on hemiarthroplasty and native phantoms; no metal or glenosphere on a native shoulder', () => {
   for (const side of ['R', 'L']) {
     const h = makePhantom({ kind: 'hemi', side, seed: 11 });
-    const ch = classify(h.image);
-    assert.equal(ch.kind, 'hemi');
-    assert.equal(ch.reverse, null);
-    assert.ok(Math.hypot(ch.head.cx - h.truth.head.cx, ch.head.cy - h.truth.head.cy) * h.mmPerPx < 1);
-    assert.ok(Math.abs(ch.head.r - h.truth.head.r) * h.mmPerPx < 0.6);
+    const hh = detectHead(h.image);
+    assert.ok(Math.hypot(hh.cx - h.truth.head.cx, hh.cy - h.truth.head.cy) * h.mmPerPx < 1);
+    assert.ok(Math.abs(hh.r - h.truth.head.r) * h.mmPerPx < 0.6);
     const n = makePhantom({ kind: 'native', side, seed: 12 });
-    const cn = classify(n.image);
-    assert.equal(cn.kind, 'native');
+    const hn = detectHead(n.image);
     assert.equal(detectReverse(n.image), null);
     assert.equal(detectMetal(n.image).present, false);
-    assert.ok(Math.hypot(cn.head.cx - n.truth.head.cx, cn.head.cy - n.truth.head.cy) * n.mmPerPx < 2);
-    assert.ok(Math.abs(cn.head.r - n.truth.head.r) * n.mmPerPx < 1.5);
+    assert.ok(Math.hypot(hn.cx - n.truth.head.cx, hn.cy - n.truth.head.cy) * n.mmPerPx < 2);
+    assert.ok(Math.abs(hn.r - n.truth.head.r) * n.mmPerPx < 1.5);
   }
 });
 

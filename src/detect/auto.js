@@ -30,8 +30,36 @@ function prepare(img) {
   const [lo, hi] = percentiles(u, [0.5, 99.95]);
   const span = hi - lo > 0 ? hi - lo : 1;
   for (let i = 0; i < n; i++) { const t = (u[i] - lo) / span; u[i] = t < 0 ? 0 : t > 1 ? 1 : t; }
+  peelMargins(u, w, h);
   const ub = gaussianBlur(u, w, h, 1.1);
   return { f, w, h, n, u, ub, flat: !(hi - lo > 0) };
+}
+
+/**
+ * Published figures and screenshots carry uniform margins — a white page background, a frame line, black canvas.
+ * Peel rows and columns off each edge while they are uniform and set them to 0 (canvas), so that nothing touching
+ * the margin is mistaken for part of the film (a white margin is as bright and flat as metal).
+ */
+function peelMargins(u, w, h) {
+  const uniform = (get, len) => {
+    let s = 0, s2 = 0;
+    for (let k = 0; k < len; k++) { const v = get(k); s += v; s2 += v * v; }
+    const m = s / len;
+    return Math.sqrt(Math.max(0, s2 / len - m * m)) < 0.025;
+  };
+  const maxPeel = (len) => Math.floor(0.25 * len);
+  let top = 0, bot = 0, left = 0, right = 0;
+  // repeat: peeling one side can make the next row/column of another side uniform
+  for (let pass = 0; pass < 3; pass++) {
+    const x0 = left, x1 = w - right, y0 = top, y1 = h - bot;
+    while (top < maxPeel(h) && uniform((k) => u[top * w + x0 + k], x1 - x0)) top++;
+    while (bot < maxPeel(h) && uniform((k) => u[(h - 1 - bot) * w + x0 + k], x1 - x0)) bot++;
+    while (left < maxPeel(w) && uniform((k) => u[(y0 + k) * w + left], y1 - y0)) left++;
+    while (right < maxPeel(w) && uniform((k) => u[(y0 + k) * w + w - 1 - right], y1 - y0)) right++;
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (y < top || y >= h - bot || x < left || x >= w - right) u[y * w + x] = 0;
+  }
 }
 
 /** Metal = components grown from solid, near-maximal cores, at the threshold where their area changes least. */
@@ -104,6 +132,403 @@ function metalMask(P, log = () => {}) {
   log(`metal candidate T ${T}: core ${core.toFixed(3)} rim ${rim.toFixed(3)}`);
   if (core < 0.78 || rim < 0.86 * core) return null;
   return { mask, T, area, fraction: frac, labels: cc.labels, main, stability: gmin };
+}
+
+function boxMean(a, w, h, r) {
+  const t = new Float32Array(w * h), o = new Float32Array(w * h), d = 2 * r + 1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let s = 0;
+    for (let x = -r; x <= r; x++) s += a[row + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++) {
+      t[row + x] = s / d;
+      s += a[row + Math.min(w - 1, x + r + 1)] - a[row + Math.max(0, x - r)];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let s = 0;
+    for (let y = -r; y <= r; y++) s += t[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++) {
+      o[y * w + x] = s / d;
+      s += t[Math.min(h - 1, y + r + 1) * w + x] - t[Math.max(0, y - r) * w + x];
+    }
+  }
+  return o;
+}
+
+/**
+ * Metal on display-processed films, where it is grey rather than white and need not be the brightest thing:
+ * seed from regions that are bright AND flat (no trabecular texture), keep those bounded by a hard edge (metal
+ * steps sharply to its surroundings; smooth soft tissue fades), and grow each at the midpoint between its own
+ * brightness and that of its surroundings.
+ */
+function flatMetalMask(P, log = () => {}) {
+  const { u, ub, w, h, n } = P;
+  const r = Math.max(2, Math.round(Math.min(w, h) / 160));
+  const u2 = new Float32Array(n);
+  for (let i = 0; i < n; i++) u2[i] = u[i] * u[i];
+  const m1 = boxMean(u, w, h, r), m2 = boxMean(u2, w, h, r);
+  const field = [];
+  for (let i = 0; i < n; i++) if (u[i] > 0.03) field.push(i);
+  if (field.length < 0.05 * n) return null;
+  const fu = new Float32Array(field.length), fs = new Float32Array(field.length);
+  field.forEach((i, k) => { fu[k] = m1[i]; fs[k] = Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i])); });
+  const [q80] = percentiles(fu, [80]);
+  const [s50] = percentiles(fs, [50]);
+  const fb = new Uint8Array(n);
+  const sdMax = Math.max(0.012, 0.6 * s50);
+  for (const i of field) if (m1[i] >= q80 && Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i])) <= sdMax) fb[i] = 1;
+  const cc = connectedComponents(fb, w, h, 8);
+  const minArea = 0.0015 * field.length;
+  const gx = (i) => ub[i + 1] - ub[i - 1], gy = (i) => ub[i + w] - ub[i - w];
+  const mask = new Uint8Array(n);
+  const labels = new Int32Array(n);
+  let kept = 0, area = 0, main = 0, mainArea = 0;
+  for (let k = 1; k <= cc.count; k++) {
+    const st = cc.stats[k];
+    if (st.area < minArea) continue;
+    const b = st.border;
+    if (b.left > 0.3 * h || b.right > 0.3 * h || b.top > 0.3 * w || b.bottom > 0.3 * w) continue;
+    // inside level and the level of a ring 3–8 px outside the component
+    const comp = new Uint8Array(n);
+    let ins = [];
+    for (let y = st.minY; y <= st.maxY; y++) for (let x = st.minX; x <= st.maxX; x++) { const i = y * w + x; if (cc.labels[i] === k) { comp[i] = 1; ins.push(u[i]); } }
+    const dOut = distanceTransformSq(comp, w, h, 1);
+    const ring = [];
+    const x0 = Math.max(1, st.minX - 9), x1 = Math.min(w - 2, st.maxX + 9), y0 = Math.max(1, st.minY - 9), y1 = Math.min(h - 2, st.maxY + 9);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = y * w + x; if (dOut[i] >= 9 && dOut[i] <= 64 && u[i] > 0.03) ring.push(u[i]); }
+    if (ring.length < 20) continue;
+    ins = Float32Array.from(ins); const Im = percentiles(ins, [50])[0], Io = percentiles(Float32Array.from(ring), [50])[0];
+    const c = Im - Io;
+    if (c < (globalThis.__FLAT_C ?? 0.1)) { log(`flat comp ${k} (${st.cx.toFixed(0)},${st.cy.toFixed(0)}) area ${st.area} low contrast ${c.toFixed(3)}`); continue; }
+    // grow at the midpoint; reject if it floods (then the "edge" was not an edge)
+    const T = Io + 0.5 * c;
+    const grown = new Uint8Array(n), stack = [];
+    for (let y = st.minY; y <= st.maxY; y++) for (let x = st.minX; x <= st.maxX; x++) { const i = y * w + x; if (comp[i] && ub[i] >= T) { grown[i] = 1; stack.push(i); } }
+    let ga = stack.length;
+    while (stack.length && ga <= 4 * st.area) {
+      const i = stack.pop(), x = i % w, y = (i - x) / w;
+      for (const j of [i - 1, i + 1, i - w, i + w]) {
+        if (j < 0 || j >= n || grown[j] || ub[j] < T) continue;
+        const xj = j % w; if (Math.abs(xj - x) > 1 || y < 1 || y > h - 2) continue;
+        grown[j] = 1; ga++; stack.push(j);
+      }
+    }
+    if (ga > 4 * st.area) { log(`flat comp ${k} (${st.cx.toFixed(0)},${st.cy.toFixed(0)}) floods at T ${T.toFixed(2)}`); continue; }
+    // edge hardness: mean gradient across the grown outline, relative to the contrast (a 1–2 px step gives ≥ 0.25)
+    let gs = 0, gn = 0;
+    for (let i = w + 1; i < n - w - 1; i++) {
+      if (!grown[i] || (grown[i - 1] && grown[i + 1] && grown[i - w] && grown[i + w])) continue;
+      gs += Math.hypot(gx(i), gy(i)) / 2; gn++;
+    }
+    const hard = gn ? gs / gn / c : 0;
+    log(`flat comp ${k} (${st.cx.toFixed(0)},${st.cy.toFixed(0)}) area ${st.area}→${ga} in ${Im.toFixed(2)} out ${Io.toFixed(2)} hardness ${hard.toFixed(2)}`);
+    if (hard < (globalThis.__FLAT_H ?? 0.22)) continue;
+    kept++;
+    for (let i = 0; i < n; i++) if (grown[i] && !mask[i]) { mask[i] = 1; labels[i] = kept; area++; }
+    if (ga > mainArea) { mainArea = ga; main = kept; }
+  }
+  if (!kept) return null;
+  let fieldN = field.length;
+  const frac = area / Math.max(1, fieldN);
+  if (frac < 0.002 || frac > 0.45) return null;
+  log(`flat metal: ${kept} bodies, fraction ${frac.toFixed(3)}`);
+  return { mask, T: 0, area, fraction: frac, labels, main, stability: 0, flat: true };
+}
+
+/**
+ * Metal as the large, bright object with a crisp outline. Works on display-processed and JPEG films where the metal
+ * has no brightness plateau and need not be the brightest thing (annotation arrows and side markers often are).
+ *   1. seeds: regions that are bright (top 15% of the field) and flat (no trabecular texture);
+ *   2. for each seed, scan the threshold downward and measure the share of the region's outline that lies on a crisp
+ *      edge (≥ 3% of the intensity range per pixel); metal has a threshold at which nearly all of it does;
+ *   3. take the lowest threshold still near that peak (to include the dimmer rim of a round implant);
+ *   4. keep objects much brighter than their surroundings; the implant is the largest, satellites under 5% of it
+ *      (markers, arrows, clips) are dropped.
+ */
+function crispMetalMask(P, log = () => {}) {
+  const { u, ub, w, h, n } = P;
+  const r = Math.max(2, Math.round(Math.min(w, h) / 160));
+  const u2 = new Float32Array(n);
+  for (let i = 0; i < n; i++) u2[i] = u[i] * u[i];
+  const m1 = boxMean(u, w, h, r), m2 = boxMean(u2, w, h, r);
+  const field = [];
+  for (let i = 0; i < n; i++) if (u[i] > 0.03) field.push(i);
+  if (field.length < 0.05 * n) return null;
+  const sdOf = (i) => Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i]));
+  const [q85] = percentiles(Float32Array.from(field, (i) => m1[i]), [85]);
+  const [s50] = percentiles(Float32Array.from(field, (i) => sdOf(i)), [50]);
+  const sdMax = Math.max(0.012, 0.6 * s50);
+  const fb = new Uint8Array(n);
+  for (const i of field) if (m1[i] >= q85 && sdOf(i) <= sdMax) fb[i] = 1;
+  const cc = connectedComponents(fb, w, h, 8);
+  const minSeed = 0.0008 * field.length;
+  const seeds = [];
+  for (let k = 1; k <= cc.count; k++) {
+    const st = cc.stats[k];
+    if (st.area < minSeed) continue;
+    const b = st.border;
+    if (b.left > 0.3 * h || b.right > 0.3 * h || b.top > 0.3 * w || b.bottom > 0.3 * w) continue;
+    let px = -1, best = -Infinity, sum = 0;
+    for (let y = st.minY; y <= st.maxY; y++) for (let x = st.minX; x <= st.maxX; x++) {
+      const i = y * w + x;
+      if (cc.labels[i] !== k) continue;
+      sum += ub[i];
+      const v = m1[i] - 3 * sdOf(i);
+      if (v > best) { best = v; px = i; }
+    }
+    seeds.push({ px, level: sum / st.area, curve: [] });
+  }
+  if (!seeds.length) return null;
+  // outline pixels next to the black canvas do not count: the arm against the canvas is a crisp edge too
+  const nearCanvas = new Uint8Array(n);
+  for (let y = 3; y < h - 3; y++) for (let x = 3; x < w - 3; x++) {
+    const i = y * w + x;
+    if (u[i - 3] <= 0.03 || u[i + 3] <= 0.03 || u[i - 3 * w] <= 0.03 || u[i + 3 * w] <= 0.03) nearCanvas[i] = 1;
+  }
+  const G = new Float32Array(n);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const i = y * w + x; G[i] = Math.hypot(ub[i + 1] - ub[i - 1], ub[i + w] - ub[i - w]) / 2; }
+  const top = Math.max(...seeds.map((q) => q.level));
+  const Ts = [];
+  for (let T = Math.min(0.99, top - 0.01); T >= 0.3; T -= 0.02) Ts.push(+T.toFixed(3));
+  const m = new Uint8Array(n);
+  for (const T of Ts) {
+    for (let i = 0; i < n; i++) m[i] = ub[i] >= T ? 1 : 0;
+    const c2 = connectedComponents(m, w, h, 8);
+    const out = new Float64Array(c2.count + 1), crisp = new Float64Array(c2.count + 1);
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      if (!m[i] || (m[i - 1] && m[i + 1] && m[i - w] && m[i + w]) || nearCanvas[i]) continue;
+      const l = c2.labels[i];
+      out[l]++; if (G[i] >= 0.03) crisp[l]++;
+    }
+    for (const q of seeds) {
+      if (T > q.level - 0.01 || q.done) continue;
+      const l = c2.labels[q.px];
+      if (!l) continue;
+      const A = c2.stats[l].area;
+      if (A > 0.6 * field.length) { q.done = true; continue; }
+      q.curve.push({ T, A, f: out[l] > 8 ? crisp[l] / out[l] : 0 });
+    }
+  }
+  const objs = [];
+  for (const q of seeds) {
+    const c = q.curve;
+    if (c.length < 3) continue;
+    const fs = c.map((x, i) => (c[Math.max(0, i - 1)].f + 2 * x.f + c[Math.min(c.length - 1, i + 1)].f) / 4);
+    let bi = 0;
+    for (let i = 1; i < c.length; i++) if (fs[i] > fs[bi]) bi = i;
+    if (fs[bi] < 0.62) continue;
+    let j = bi;
+    while (j + 1 < c.length && fs[j + 1] >= fs[bi] - 0.06 && c[j + 1].A <= 1.35 * c[bi].A) j++;
+    objs.push({ px: q.px, T: c[j].T, A: c[j].A, f: +fs[bi].toFixed(2), level: q.level });
+  }
+  if (!objs.length) { log('crisp: no seed reaches a crisp outline'); return null; }
+  // Build each object's region at its own threshold, independently.
+  const regions = [];
+  for (const o of objs) {
+    const reg = [], stack = [o.px], seen = new Uint8Array(n);
+    seen[o.px] = 1;
+    while (stack.length) {
+      const i = stack.pop(); reg.push(i);
+      const x = i % w;
+      for (const j of [i - 1, i + 1, i - w, i + w, i - w - 1, i - w + 1, i + w - 1, i + w + 1]) {
+        if (j < 0 || j >= n || seen[j] || ub[j] < o.T) continue;
+        if (Math.abs((j % w) - x) > 1) continue;
+        seen[j] = 1; stack.push(j);
+      }
+    }
+    // a region running along the image border is a figure frame, a white margin or the edge of the field
+    let onEdge = 0;
+    for (const i of reg) { const x = i % w, y = (i - x) / w; if (x <= 1 || y <= 1 || x >= w - 2 || y >= h - 2) onEdge++; }
+    if (onEdge > 0.15 * (w + h)) { log(`crisp object at T ${o.T}: runs along the image border (${onEdge} px) — frame or margin, skipped`); continue; }
+    const reg8 = new Uint8Array(n); for (const i of reg) reg8[i] = 1;
+    const dOut = distanceTransformSq(reg8, w, h, 1);
+    const ring = [];
+    for (let i = 0; i < n; i++) if (dOut[i] >= 9 && dOut[i] <= 64 && u[i] > 0.03) ring.push(u[i]);
+    const Im = percentiles(Float32Array.from(reg, (i) => u[i]), [50])[0], Io = ring.length ? percentiles(Float32Array.from(ring), [50])[0] : 0;
+    log(`crisp object at T ${o.T}: area ${reg.length} (${(reg.length / field.length * 100).toFixed(2)}%), outline crisp ${o.f}, inside ${Im.toFixed(2)} outside ${Io.toFixed(2)}`);
+    if (Im - Io < 0.12) continue;
+    // interior structure: share of pixels at least 3 px inside that sit in textured (non-flat) surroundings, and the
+    // spread of brightness inside relative to the contrast with the surroundings
+    const dIn = distanceTransformSq(reg8, w, h, 0);
+    let tex = 0, deep = 0;
+    const inner = [];
+    for (const i of reg) if (dIn[i] >= 9) { deep++; inner.push(u[i]); if (sdOf(i) > sdMax) tex++; }
+    const [p10, p90] = inner.length ? percentiles(Float32Array.from(inner), [10, 90]) : [0, 0];
+    const texture = deep ? tex / deep : 1, spread = (p90 - p10) / Math.max(0.05, Im - Io);
+    log(`    interior: textured ${texture.toFixed(2)}, spread ${spread.toFixed(2)}`);
+    // Metal is uniform inside (spread 0.02–0.45 on real films and phantoms); bone, and metal leaked into bone, is not
+    // (0.9–1.9 on real native films).
+    if (spread > 0.55) continue;
+    regions.push({ reg, set: reg8, area: reg.length, Im, f: o.f, texture, spread });
+  }
+  // Metal sits inside bone, never the other way round: a region that contains a markedly brighter region is bone.
+  // Regions that are (nearly) the same object are merged into the larger.
+  const drop = new Set();
+  for (const A of regions) for (const B of regions) {
+    if (A === B || drop.has(A) || drop.has(B)) continue;
+    let ov = 0;
+    for (const i of B.reg) if (A.set[i]) ov++;
+    if (ov < 0.85 * B.area) continue;                                   // B is not inside A
+    if (A.area <= 1.3 * B.area) { drop.add(A.f > B.f ? B : A); continue; }   // the same object seen from two seeds
+    // A is much larger. It is bone (or metal leaked into bone) if the region inside it is markedly brighter or has
+    // a crisper outline; otherwise B is just the brighter part of a shaded implant and A is the whole implant.
+    if (B.Im >= A.Im + 0.12 || B.f > A.f + 0.1) { drop.add(A); log(`  region of ${A.area} px contains a brighter or crisper one: bone, dropped`); }
+    else drop.add(B);
+  }
+  for (let k = regions.length - 1; k >= 0; k--) if (drop.has(regions[k])) regions.splice(k, 1);
+  if (!regions.length) return null;
+  const mask = new Uint8Array(n), labels = new Int32Array(n);
+  regions.sort((a, b) => b.area - a.area);
+  const big = regions[0].area;
+  let area = 0, lab = 0;
+  for (const g of regions) {
+    if (g.area < 0.12 * big) continue;
+    lab++;
+    for (const i of g.reg) { mask[i] = 1; labels[i] = lab; area++; }
+  }
+  const frac = area / field.length;
+  if (big < 0.003 * field.length || frac > 0.6) { log(`crisp: implant too small or too large (${(frac * 100).toFixed(2)}%)`); return null; }
+  log(`crisp metal: ${lab} bodies, fraction ${frac.toFixed(3)}`);
+  return { mask, T: 0, area, fraction: frac, labels, main: 1, stability: 0, crisp: true };
+}
+
+/**
+ * Metal by marker-controlled watershed on the gradient image. Works where the metal is barely brighter than the
+ * tissue beside it (heavily processed journal figures) but its outline is still a crisp edge.
+ *   markers: each flat, bright region is a candidate (its own label); dark or textured pixels are background
+ *   (metal is never textured). Flooding in order of gradient puts every boundary on the strongest edge between
+ *   markers. Each candidate region is then judged on its own: a crisp outline, uniform inside, brighter than its
+ *   surroundings, not hugging the border. Accepted regions that touch merge into one implant.
+ */
+function watershedMetal(P, log = () => {}) {
+  const { u, ub, w, h, n } = P;
+  const r = Math.max(2, Math.round(Math.min(w, h) / 160));
+  const u2 = new Float32Array(n);
+  for (let i = 0; i < n; i++) u2[i] = u[i] * u[i];
+  const m1 = boxMean(u, w, h, r), m2 = boxMean(u2, w, h, r);
+  const sdOf = (i) => Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i]));
+  const field = [];
+  for (let i = 0; i < n; i++) if (u[i] > 0.03) field.push(i);
+  if (field.length < 0.05 * n) return null;
+  const [q50, q85] = percentiles(Float32Array.from(field, (i) => m1[i]), [50, 85]);
+  const [s50] = percentiles(Float32Array.from(field, (i) => sdOf(i)), [50]);
+  const sdMax = Math.max(0.012, 0.6 * s50);
+  const fb = new Uint8Array(n);
+  for (const i of field) if (m1[i] >= q85 && sdOf(i) <= sdMax) fb[i] = 1;
+  const cc = connectedComponents(fb, w, h, 8);
+  const minSeed = 0.0008 * field.length;
+  const lab = new Int32Array(n);          // 0 unassigned, -1 background, k candidate
+  const cands = [null];
+  for (let k = 1; k <= cc.count; k++) {
+    const st = cc.stats[k];
+    if (st.area < minSeed) continue;
+    cands.push({ k, area0: st.area });
+  }
+  if (cands.length < 2) return null;
+  const idOf = new Int32Array(cc.count + 1);
+  cands.forEach((c, j) => { if (c) idOf[c.k] = j; });
+  for (let i = 0; i < n; i++) if (cc.labels[i] && idOf[cc.labels[i]]) lab[i] = idOf[cc.labels[i]];
+  // gradient, quantised for a bucket queue
+  const G = new Float32Array(n);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const i = y * w + x; G[i] = Math.hypot(ub[i + 1] - ub[i - 1], ub[i + w] - ub[i - w]) / 2; }
+  // Background markers: dark pixels, and textured pixels away from strong edges (next to an edge the local
+  // spread is high because of the edge itself, which would plant background just inside the metal rim).
+  const edge = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (G[i] >= 0.025) edge[i] = 1;
+  const nearEdge = distanceTransformSq(edge, w, h, 1);
+  const rr = (r + 2) * (r + 2);
+  for (let i = 0; i < n; i++) {
+    if (lab[i]) continue;
+    if (u[i] <= 0.03 || m1[i] < q50 || (sdOf(i) > 2.5 * sdMax && nearEdge[i] > rr)) lab[i] = -1;
+  }
+  const NB = 512, gq = (g) => Math.min(NB - 1, Math.floor(g * 4 * NB));
+  const buckets = Array.from({ length: NB }, () => []);
+  const queued = new Uint8Array(n);
+  const push = (j) => { if (!queued[j] && !lab[j]) { queued[j] = 1; buckets[gq(G[j])].push(j); } };
+  const nbrs = (i, f) => { const x = i % w; if (x > 0) f(i - 1); if (x < w - 1) f(i + 1); if (i >= w) f(i - w); if (i < n - w) f(i + w); };
+  for (let i = 0; i < n; i++) if (lab[i]) nbrs(i, push);
+  for (let b = 0; b < NB; b++) {
+    const q = buckets[b];
+    while (q.length) {
+      const i = q.pop();
+      // take the label of the neighbour already flooded (first found; ties are rare and harmless)
+      let L = 0;
+      nbrs(i, (j) => { if (!L && lab[j]) L = lab[j]; });
+      lab[i] = L || -1;
+      nbrs(i, (j) => { if (!lab[j] && !queued[j]) { queued[j] = 1; const bb = gq(G[j]); (bb < b ? q : buckets[bb]).push(j); } });
+    }
+  }
+  if (globalThis.__WS_DEBUG) globalThis.__WS_DEBUG({ lab, w, h, u, G });
+  // judge each candidate region
+  const stats = cands.map(() => ({ A: 0, out: 0, crisp: 0, sumG: 0, edge: 0, ins: [] }));
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x, L = lab[i];
+    if (L <= 0) continue;
+    const S = stats[L];
+    S.A++;
+    if (x <= 2 || y <= 2 || x >= w - 3 || y >= h - 3) S.edge++;
+    if (lab[i - 1] !== L || lab[i + 1] !== L || lab[i - w] !== L || lab[i + w] !== L) {
+      S.out++; S.sumG += G[i]; if (G[i] >= 0.025) S.crisp++;
+    } else if (S.ins.length < 40000) S.ins.push(u[i]);
+  }
+  const keep = new Uint8Array(cands.length);
+  for (let j = 1; j < cands.length; j++) {
+    const S = stats[j];
+    if (S.A < 0.003 * field.length || S.out < 12) continue;
+    const ins = Float32Array.from(S.ins);
+    if (ins.length < 20) continue;
+    const [p10, p50, p90] = percentiles(ins, [10, 50, 90]);
+    // ring 3–6 px outside the region
+    const reg = new Uint8Array(n);
+    for (let i = 0; i < n; i++) if (lab[i] === j) reg[i] = 1;
+    const dOut = distanceTransformSq(reg, w, h, 1);
+    const ring = [];
+    for (let i = 0; i < n; i++) if (dOut[i] >= 9 && dOut[i] <= 36 && u[i] > 0.03) ring.push(u[i]);
+    const Io = ring.length ? percentiles(Float32Array.from(ring), [50])[0] : 0;
+    const c = p50 - Io, crisp = S.crisp / S.out, spread = (p90 - p10) / Math.max(0.05, c);
+    const ok = crisp >= 0.55 && c >= 0.05 && spread <= 0.65 && S.edge < 0.15 * (w + h);
+    log(`watershed region ${j}: area ${S.A} (${(S.A / field.length * 100).toFixed(2)}%), crisp ${crisp.toFixed(2)}, inside ${p50.toFixed(2)} outside ${Io.toFixed(2)}, spread ${spread.toFixed(2)}, border ${S.edge}${ok ? '  KEEP' : ''}`);
+    if (ok) keep[j] = 1;
+  }
+  const mask = new Uint8Array(n);
+  let area = 0;
+  for (let i = 0; i < n; i++) if (lab[i] > 0 && keep[lab[i]]) { mask[i] = 1; area++; }
+  if (!area) return null;
+  const c2 = connectedComponents(mask, w, h, 8);
+  let big = 0;
+  for (let k = 1; k <= c2.count; k++) big = Math.max(big, c2.stats[k].area);
+  const labels = new Int32Array(n);
+  const order = c2.stats.slice(1).filter((st) => st.area >= 0.12 * big).sort((a, b) => b.area - a.area);
+  const rank = new Int32Array(c2.count + 1);
+  order.forEach((st, i) => { rank[st.label] = i + 1; });
+  area = 0;
+  for (let i = 0; i < n; i++) { if (mask[i] && rank[c2.labels[i]]) { labels[i] = rank[c2.labels[i]]; area++; } else mask[i] = 0; }
+  const frac = area / field.length;
+  if (big < 0.003 * field.length || frac > 0.6) return null;
+  log(`watershed metal: ${order.length} bodies, fraction ${frac.toFixed(3)}`);
+  return { mask, T: 0, area, fraction: frac, labels, main: 1, stability: 0, watershed: true };
+}
+
+/** Union of independently validated metal masks; bodies under 12% of the largest are dropped (markers, clips). */
+function unionMasks(P, A, B, log = () => {}) {
+  if (!A || !B) return A || B || null;
+  const { w, h, n } = P;
+  const mask = new Uint8Array(n);
+  for (let i = 0; i < n; i++) mask[i] = A.mask[i] | B.mask[i];
+  const cc = connectedComponents(mask, w, h, 8);
+  let big = 0;
+  for (let k = 1; k <= cc.count; k++) big = Math.max(big, cc.stats[k].area);
+  const order = cc.stats.slice(1).filter((st) => st.area >= 0.12 * big).sort((a, b) => b.area - a.area);
+  const rank = new Int32Array(cc.count + 1);
+  order.forEach((st, i) => { rank[st.label] = i + 1; });
+  const labels = new Int32Array(n);
+  let area = 0;
+  for (let i = 0; i < n; i++) { if (mask[i] && rank[cc.labels[i]]) { labels[i] = rank[cc.labels[i]]; area++; } else mask[i] = 0; }
+  const fraction = area * (A.fraction / Math.max(1, A.area));
+  log(`union metal: ${order.length} bodies, ${area} px`);
+  return { mask, T: 0, area, fraction, labels, main: 1, stability: 0, union: true };
 }
 
 // ───────────────────────────── 2. stem ─────────────────────────────
@@ -322,9 +747,10 @@ function findCircle(P, M, stem, opts, log = () => {}) {
  * Straight metal edge inside the circle that faces medially (against `axis`): returns its unit normal pointing
  * lateral, its signed distance medial of the centre, and its support, or null.
  */
-function faceLine(B, C, R, axis) {
+function faceLine(B, C, R, axis, onDome = null) {
   const xs = [], ys = [];
   for (let i = 0; i < B.n; i++) {
+    if (onDome && !onDome(B.px[i], B.py[i])) continue;
     const dx = B.px[i] - C[0], dy = B.py[i] - C[1], dd = Math.hypot(dx, dy);
     if (dd > 1.25 * R) continue;
     if (dd > 0.9 * R && (dx * B.nx[i] + dy * B.ny[i]) > 0.8 * dd) continue;      // on the dome arc itself
@@ -545,10 +971,15 @@ export function autoLandmarks(img, opts = {}) {
   const P = prepare(img);
   if (P.flat) return null;
   const log = opts.trace || (() => {});
-  const M = metalMask(P, log);
+  let M;
+  if (opts.metal === 'watershed') M = watershedMetal(P, log);
+  else if (opts.metal === 'crisp') M = crispMetalMask(P, log);
+  else M = unionMasks(P, crispMetalMask(P, log), watershedMetal(P, log), log);
+  M = M || metalMask(P, log) || flatMetalMask(P, log);
   if (!M) { log('no metal'); return null; }
   addNear(P, M);
   const stem = traceStem(P, M);
+  if (opts.debug) Object.assign(opts.debug, { P, M, stem });
   log(`metal T ${M.T} fraction ${M.fraction.toFixed(3)} stability ${M.stability.toFixed(3)}; stem ${stem ? `wd ${stem.wd.toFixed(1)} len ${stem.len}` : 'none'}`);
   let circle = findCircle(P, M, stem, opts, log);
   if (!circle && stem && opts.headFinder) {
@@ -570,10 +1001,20 @@ export function autoLandmarks(img, opts = {}) {
   const ref = stem ? stem.prox : [C[0], C[1] + R];
   let ex = C[0] - ref[0], ey = C[1] - ref[1];
   const el = Math.hypot(ex, ey) || 1; ex /= el; ey /= el;
+  // only metal connected to the dome itself counts (baseplate and screws are attached to it; separate bodies are not)
+  const cnt = new Map();
+  for (let y = Math.max(0, Math.floor(C[1] - 0.7 * R)); y <= Math.min(h - 1, Math.ceil(C[1] + 0.7 * R)); y++) {
+    for (let x = Math.max(0, Math.floor(C[0] - 0.7 * R)); x <= Math.min(w - 1, Math.ceil(C[0] + 0.7 * R)); x++) {
+      const l = M.mask[y * w + x] ? M.labels[y * w + x] : 0;
+      if (l) cnt.set(l, (cnt.get(l) || 0) + 1);
+    }
+  }
+  let domeLabel = 0, dl = 0;
+  for (const [l, c] of cnt) if (c > dl) { dl = c; domeLabel = l; }
   let far = 0, fx = 0, fy = 0;
   for (let y = Math.max(0, Math.floor(C[1] - 3 * R)); y <= Math.min(h - 1, Math.ceil(C[1] + 3 * R)); y++) {
     for (let x = Math.max(0, Math.floor(C[0] - 3 * R)); x <= Math.min(w - 1, Math.ceil(C[0] + 3 * R)); x++) {
-      if (!M.mask[y * w + x]) continue;
+      if (!M.mask[y * w + x] || (domeLabel && M.labels[y * w + x] !== domeLabel)) continue;
       const dx = x - C[0], dy = y - C[1], dd = Math.hypot(dx, dy);
       if (dd < 1.12 * R || dd > 3 * R) continue;
       if ((dx * ex + dy * ey) < 0.2 * dd) continue;                    // within ~78° of "away from the stem"
@@ -599,7 +1040,7 @@ export function autoLandmarks(img, opts = {}) {
     // Refine the direction from the implant's own straight edges: the flat back of the dome where it shows beside
     // the baseplate, and the baseplate's medial edge, are both parallel to the face. (The centroid of the screws
     // alone is off by 15° or more when the screws are not symmetric.)
-    const fl = faceLine(circle.B || boundary(P, M), C, R, [ax, ay]);
+    const fl = faceLine(circle.B || boundary(P, M), C, R, [ax, ay], domeLabel ? (x, y) => M.labels[y * w + x] === domeLabel : null);
     log(`axis from screws (${ax.toFixed(2)},${ay.toFixed(2)}); straight back edge ${fl ? `${fl.n} px, normal (${fl.nx.toFixed(2)},${fl.ny.toFixed(2)}), ${fl.d.toFixed(1)} px medial of centre` : 'not found'}`);
     if (fl) { ax = fl.nx; ay = fl.ny; }
     const L = ax >= 0 ? 1 : -1;
