@@ -7,6 +7,7 @@ import { IMPLANTS, protocolFor, viewsFor } from '../measure/protocols/index.js';
 import { evaluate, evaluateFindings, appraise } from '../measure/core.js';
 import { circleFrom3, v3, scapularFrame } from '../measure/geom.js';
 import { anatomicVsReverse } from '../measure/decision.js';
+import { seedXray, lateralSignOf } from '../measure/seed.js';
 import { MUSCLES, sampleRoi, roiStats, muscleResults } from '../measure/muscle.js';
 import { detectHeadSphere } from '../detect/ct.js';
 import * as panel from './panel.js';
@@ -21,7 +22,6 @@ const SHORT = {
   canalM: 'canal', canalD: 'canal', stemM: '', stemD: '', head: 'head', pcA: '1', pcB: '2', pcC: '3', gmid: 'G mid', osteo: 'osteophyte',
   dtO: 'outer', dtI: 'inner', ga: 'Ant', gp: 'Post', scapAx: 'axis', post: 'post', tri: 'TS', ia: 'IA', gsup: 'Sup', ginf: 'Inf', sgr: 'Sup',
 };
-const MIN_ESTIMATE = 0.2;     // every landmark the detector proposes is placed; weak ones are simply marked "estimated"
 
 const worker = new Worker(URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' })));
 
@@ -48,7 +48,6 @@ let panelTimer = 0;
 
 const cur = () => state.items[state.cur] || null;
 const proto = (item = cur()) => (item ? protocolFor(state.implant, item.kind, item.view) : null);
-const P2 = (a) => ({ x: a[0], y: a[1] });
 
 // ───────────────────────── worker messaging ─────────────────────────
 worker.onmessage = (e) => {
@@ -121,7 +120,7 @@ function onXray(m) {
   const item = {
     uid: ++state.seq, kind: 'xray', name: m.sample ? 'Synthetic X-ray' : state.loadingName || 'X-ray', image: m.image, det, sample: !!m.sample,
     view: /AX/i.test((m.image.meta && m.image.meta.viewPosition) || '') ? 'axillary' : 'ap',
-    lateralSign: det.side === 'right-of-glenoid' ? 1 : det.side === 'left-of-glenoid' ? -1 : lat === 'L' ? 1 : -1,
+    lateralSign: lateralSignOf(det, lat),
     calib: { size: null }, lm: {}, findings: {}, rimAngle: {}, truth: m.truth || null,
   };
   addItem(item);
@@ -174,25 +173,8 @@ function seed(item) {
   const put = (id, value, st) => { if (p.landmarks.some((l) => l.id === id) && value) { set.values[id] = value; set.state[id] = st; } };
   const d = item.det || {};
   if (item.kind === 'xray') {
-    const line = (l) => (l && l.a && l.b ? { a: P2(l.a), b: P2(l.b) } : null);
-    if (p.id === 'rsa-ap' && d.reverse) {
-      // A weak dome fit is offered as an estimate to be checked, never as a detection.
-      const g = d.reverse.glenosphere, st = g.score >= 0.6 ? 'auto' : 'estimated';
-      put('gs', { cx: g.cx, cy: g.cy, r: g.r }, st);
-      put('face', line(g.face), st);
-      put('stem', line(d.reverse.stem), st);
-    }
-    if (p.id !== 'rsa-ap' && d.head && p.view === 'ap') {
-      const implantHead = d.head.kind === 'implant';
-      if ((p.implant === 'pyc') === implantHead) put('head', { cx: d.head.cx, cy: d.head.cy, r: d.head.r }, d.head.score >= 0.6 ? 'auto' : 'estimated');
-      if (p.implant === 'pyc' && d.stem) put('stem', line(d.stem), 'auto');
-    }
-    const est = (d.estimates && d.estimates[p.id]) || {};
-    for (const [id, e] of Object.entries(est)) {
-      if (set.values[id] || !(e.confidence >= MIN_ESTIMATE)) continue;
-      const measured = (id === 'stemM' || id === 'stemD') && e.confidence >= 0.8;
-      put(id, e.a ? line(e) : { x: e.x, y: e.y }, measured ? 'auto' : 'estimated');
-    }
+    const s = seedXray(p, d);
+    Object.assign(set.values, s.values); Object.assign(set.state, s.state);
   } else {
     if (p.id === 'rsa-ct' && d.reverse) {
       const g = d.reverse.glenosphere;
