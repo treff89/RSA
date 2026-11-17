@@ -138,7 +138,8 @@ export class ImageView {
       return;
     }
     const p = this._local(e);
-    const h = e.button === 0 ? this._handleAt(e) : null;
+    // while a landmark is being placed, a click places it even if it lands on an existing handle
+    const h = e.button === 0 && !this.armed ? this._handleAt(e) : null;
     if (h) {
       const s = this.toScreen(h);
       this.drag = { kind: 'handle', key: h.key, off: { x: s.x - p.x, y: s.y - p.y }, moved: false, start: p };

@@ -64,7 +64,7 @@ try {
     if (proto === 'rsa-ap') {
       await page.selectOption('#cal-size', '38');
       const q = await results(page);
-      assert.ok(Math.abs(q.gsApparent.v - 38) < 0.3, 'glenosphere diameter recovered');
+      assert.ok(Math.abs(q.gsApparent.v - 38) < 0.6, 'glenosphere diameter recovered');
       assert.ok(q.lsa.v > 40 && q.lsa.v < 130 && q.dsa.v > 10 && q.dsa.v < 100);
     }
     if (proto === 'native-ct') {

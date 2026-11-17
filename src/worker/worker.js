@@ -10,6 +10,8 @@
 // plus {type:'progress', scope, fraction, label} and {type:'error', scope, message}
 import { Intake, setWasmBinaries } from '../dicom/index.js';
 import * as xdet from '../detect/xray.js';
+import { autoLandmarks, nativeLandmarks } from '../detect/auto.js';
+import { grayWithoutOverlay } from '../detect/overlay.js';
 import * as cdet from '../detect/ct.js';
 import { makePhantom } from '../sample/xray-phantom.js';
 import { makeCtPhantom } from '../sample/ct-phantom.js';
@@ -24,25 +26,33 @@ const progress = (scope, fraction, label) => post({ type: 'progress', scope, fra
 // Error messages come from our own modules and never contain file names or header values.
 const fail = (scope, err) => post({ type: 'error', scope, message: (err && err.message) || String(err) });
 
-/** Automatic detection on a radiograph. Never throws: a failed detection just means manual placement. */
-export function detectXray(image) {
+/**
+ * Automatic detection and landmarking of a radiograph. Never throws: a failed detection just means manual placement.
+ * Implants go through the real-film pipeline (../detect/auto.js); a shoulder with no implant falls back to the
+ * gradient-voted humeral head circle, from which the bony landmarks are estimated.
+ */
+export function detectXray(image, opts = {}) {
   const img = { width: image.width, height: image.height, data: image.data };
   const out = { kind: 'unknown', confidence: 0, reverse: null, head: null, stem: null, side: null, metalFraction: 0, estimates: {}, error: null };
+  const strip = (o) => JSON.parse(JSON.stringify(o, (k, v) => (k === 'mask' || ArrayBuffer.isView(v) ? undefined : v)));
   try {
-    const c = xdet.classify(img);
-    out.kind = c.kind; out.confidence = c.confidence || 0;
-    out.reverse = c.reverse || null; out.head = c.head || null;
-    out.stem = (c.reverse && c.reverse.stem) || c.stem || null;
-    out.side = (c.reverse && c.reverse.side) || c.side || null;
-    out.metalFraction = c.metal ? c.metal.fraction || 0 : 0;
-    const protocol = { reverse: 'rsa-ap', hemi: 'pyc-ap', native: 'native-ap' }[c.kind];
-    if (protocol) {
-      try { out.estimates[protocol] = xdet.estimateLandmarks(img, c, { protocol }) || {}; } catch { out.estimates[protocol] = {}; }
+    const mmPerPx = image.pixelSpacing && image.pixelSpacing.mm > 0 ? image.pixelSpacing.mm : undefined;
+    const a = autoLandmarks(img, { mmPerPx, headFinder: (im) => xdet.detectHead(im) });
+    if (a) return strip({ ...out, ...a });
+    // no implant: native shoulder
+    const head = xdet.detectHead(img);
+    if (head) {
+      out.kind = 'native'; out.confidence = 0.3 + 0.5 * (head.score || 0); out.head = head;
+      // lateral is the side of the head with less bone and tissue beyond it
+      const side = (sg) => { let s = 0, k = 0; for (let t = 1.5; t <= 3; t += 0.25) { const x = Math.round(head.cx + sg * t * head.r), y = Math.round(head.cy); if (x >= 0 && x < img.width) { s += img.data[y * img.width + x]; k++; } } return k ? s / k : -Infinity; };
+      const L = opts.lateralSign || (side(1) < side(-1) ? 1 : -1);
+      out.side = L > 0 ? 'right-of-glenoid' : 'left-of-glenoid';
+      try { out.estimates['native-ap'] = nativeLandmarks(img, head, L); } catch { out.estimates['native-ap'] = {}; }
     }
   } catch (e) {
     out.error = 'Automatic detection failed on this image; place the landmarks by hand.';
   }
-  return JSON.parse(JSON.stringify(out, (k, v) => (k === 'mask' || ArrayBuffer.isView(v) ? undefined : v)));
+  return strip(out);
 }
 
 export function detectCt(volume) {
@@ -70,14 +80,18 @@ async function decodeRaster(bytes) {
   const g = cv.getContext('2d', { willReadFrequently: true });
   g.drawImage(bmp, 0, 0, w, h);
   bmp.close();
-  const px = g.getImageData(0, 0, w, h).data;
-  const data = new Float32Array(w * h);
-  for (let i = 0, p = 0; i < data.length; i++, p += 4) data[i] = 0.299 * px[p] + 0.587 * px[p + 1] + 0.114 * px[p + 2];
+  // coloured viewer overlay (names, dates, IDs) is blanked here, before anything else sees the picture
+  const { gray: data, blanked } = grayWithoutOverlay(g.getImageData(0, 0, w, h).data, w, h);
   return {
     width: w, height: h, data, min: 0, max: 255, window: { center: 127.5, width: 255 },
     pixelSpacing: { mm: null, row: null, col: null, source: null, magnification: null, detectorPlane: false, note: '' },
     meta: { modality: 'IMG', bodyPart: '', laterality: '', viewPosition: '', description: '', burnedInRisk: true, photometric: '', transferSyntax: '' },
-    warnings: ['Ordinary image file: no pixel size is stored, so distances need the implant size. Screenshots and photos often carry the patient\'s name in the picture itself — the app does not send it anywhere, but an exported annotated image would include it.'],
+    warnings: [
+      'Ordinary image file: no pixel size is stored, so distances need the implant size.',
+      blanked > 200
+        ? 'Coloured overlay text (names, dates, IDs from the viewer) was blanked from this picture as it was opened. White or grey text burned into the film cannot be recognised and would remain — check before exporting an annotated image.'
+        : 'Screenshots and photos can carry the patient\'s name in the picture itself. Coloured overlay text is blanked automatically; white or grey text is not recognised and would appear in an exported annotated image.',
+    ],
   };
 }
 
@@ -144,7 +158,7 @@ if (typeof self !== 'undefined' && typeof self.postMessage === 'function' && typ
       else if (m.type === 'xray') await onXray(m.id);
       else if (m.type === 'ct') await onCt(m.seriesId);
       else if (m.type === 'sample') onSample(m.modality, m.kind);
-      else if (m.type === 'detect') post({ type: 'detected', reqId: m.reqId, det: detectXray(m.image) });
+      else if (m.type === 'detect') post({ type: 'detected', reqId: m.reqId, det: detectXray(m.image, { lateralSign: m.lateralSign }) });
       else if (m.type === 'reset') intake.reset();
     } catch (err) {
       if (m.type === 'scan' && err && err.code === 'NOTHING_USABLE') post({ type: 'error', scope: 'scan', message: err.message, result: err.result || null });

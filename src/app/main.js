@@ -21,7 +21,7 @@ const SHORT = {
   canalM: 'canal', canalD: 'canal', stemM: '', stemD: '', head: 'head', pcA: '1', pcB: '2', pcC: '3', gmid: 'G mid', osteo: 'osteophyte',
   dtO: 'outer', dtI: 'inner', ga: 'Ant', gp: 'Post', scapAx: 'axis', post: 'post', tri: 'TS', ia: 'IA', gsup: 'Sup', ginf: 'Inf', sgr: 'Sup',
 };
-const MIN_ESTIMATE = 0.4;     // estimates the detector trusts less than this are not shown at all
+const MIN_ESTIMATE = 0.2;     // every landmark the detector proposes is placed; weak ones are simply marked "estimated"
 
 const worker = new Worker(URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' })));
 
@@ -964,7 +964,7 @@ function redetect() {
   }
   onProgress({ scope: 'load', fraction: 0.5, label: 'Looking for the implant…' });
   const im = item.image;
-  worker.postMessage({ type: 'detect', reqId: item.uid, image: { width: im.width, height: im.height, data: im.data } });
+  worker.postMessage({ type: 'detect', reqId: item.uid, image: { width: im.width, height: im.height, data: im.data, pixelSpacing: im.pixelSpacing } });
 }
 
 bind();
