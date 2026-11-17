@@ -156,7 +156,7 @@ function onDetected(m) {
   if (item.det.side) item.lateralSign = item.det.side === 'right-of-glenoid' ? 1 : -1;
   delete item.lm[proto(item).id];
   $('progress').hidden = true;
-  if (item === cur()) { seed(item); refresh(); }
+  if (item === cur()) { seed(item); focusLandmarks(item); refresh(); }
 }
 
 // ───────────────────────── landmarks ─────────────────────────
@@ -599,10 +599,25 @@ function select(i) {
     }
     xview.fitted = true;
     xview.setRaster(item.image, item.image.window);
+    focusLandmarks(item);
     $('view').value = item.view;
     if (state.tab === 'muscle') state.tab = 'landmarks';
   }
   refresh();
+}
+
+/** Zoom a radiograph to the landmarks that were placed: screenshots are mostly black border. */
+function focusLandmarks(item) {
+  const vals = Object.values(lmSet(item).values);
+  if (vals.length < 3) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const add = (x, y) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
+  for (const v of vals) {
+    if (v.r !== undefined) { add(v.cx - v.r, v.cy - v.r); add(v.cx + v.r, v.cy + v.r); } else if (v.a) { add(v.a.x, v.a.y); add(v.b.x, v.b.y); } else add(v.x, v.y);
+  }
+  const im = item.image;
+  // only worth it when the landmarks occupy a small part of the picture
+  if ((x1 - x0) * 1.6 < im.width * 0.8 || (y1 - y0) * 1.6 < im.height * 0.8) xview.showRegion(x0, y0, x1, y1, 0.3);
 }
 
 function renderItems() {

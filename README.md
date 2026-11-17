@@ -40,31 +40,37 @@ weighted reading of anatomic versus reverse replacement.
 
 ## What is automatic, and what is not
 
-Detection is classical image analysis (no machine-learning model, nothing downloaded):
+Detection is classical image analysis (no machine-learning model, nothing downloaded). On a radiograph **every
+landmark is placed automatically**; you then check and drag.
 
-* **Radiographs** — metal segmentation; the glenosphere as a circle with its flat back face and axis; the humeral stem
-  axis and widths; a prosthetic or bony humeral head circle. An implant found with low confidence is shown as an
-  *estimate to check*, never as a detection.
+* **Implant landmarks are measured** — the metal is segmented, the stem is traced from its tip (axis and widths),
+  and the glenosphere dome or prosthetic head is found as the best-supported convex arc of the metal outline, with
+  the glenosphere's back face taken from the implant's own straight edges. Reverse and hemiarthroplasty are told
+  apart automatically.
+* **Bony landmarks are estimated** — acromion, glenoid rim, tuberosity, fossa floor, canal cortices and the
+  best-fit-circle points are placed from anatomical proportions relative to the implant and snapped to the nearest
+  matching bone edge where one is found. They are drawn dashed, listed as "Estimated — check", and every
+  measurement resting on one is labelled **provisional** until you confirm it (one button confirms them all).
 * **CT** — metal segmentation; a sphere fitted to the glenosphere with its axis; the stem axis; the humeral head
-  (native or prosthetic) as a sphere.
-* **Bony landmarks are yours.** The acromion, glenoid rim, tuberosity, fossa floor, trigonum and so on are placed by
-  clicking (a magnifier helps), or dragged from the software's estimate. Estimated positions are drawn dashed, listed
-  as "Estimated — check", and every measurement resting on one is labelled **provisional** until you confirm it.
-* **Gradings are yours too** — notching, lucency, Hamada, Walch, erosion. The software does not pretend to grade them.
+  (native or prosthetic) as a sphere. Bony CT landmarks are placed by you.
+* **Screenshots** from a viewer are accepted: coloured overlay text (names, dates, IDs) is blanked as the picture is
+  opened, and the view zooms to the shoulder.
+* **Gradings are yours** — notching, lucency, Hamada, Walch, erosion. The software does not pretend to grade them.
 
-### How well does detection work? Candidly:
+### How well does it work? Candidly:
 
-* On **synthetic phantoms** with known geometry (the test suite): glenosphere centre within 0.1 mm and stem axis
-  within 0.1° on radiographs; glenosphere centre within 0.2 mm, axis within 1° and version/inclination within 0.5° on
-  CT; humeral head within 0.1 mm.
-* On **real images** it has barely been tested. One openly licensed reverse-shoulder radiograph (Wikimedia Commons)
-  was tried during development. It exposed two ways real films differ from the phantoms — implants are round, so
-  their brightness has no plateau, and the humeral tray overlaps the glenosphere so the metal forms one body — and
-  both now have a fallback. On that film the glenosphere circle is found and offered as a *low-confidence estimate*;
-  its back face is not found and must be placed (two clicks), and the stem axis is a few degrees off and marked for
-  checking. One film is not validation: expect to correct or place the implant landmarks yourself on some images.
-  No real CT has been tested.
-* Treat automatic results as a head start, not a measurement.
+* On **synthetic phantoms** with known geometry (the test suite): glenosphere centre within 0.1 mm, stem axis
+  within 0.5° on radiographs; glenosphere centre within 0.2 mm, axis within 1° and version/inclination within 0.5°
+  on CT.
+* On **real radiographs** the pipeline was developed against three clinical films (two reverse, one pyrocarbon
+  hemiarthroplasty; none is stored in this repository). On those three the implant type, glenosphere or head
+  circle, stem axis and all bony landmarks land on or within a few millimetres of the right structures. Three films
+  is a development set, not a validation: expect misses on other implant designs, unusual projections, heavy
+  overlap or poor exposure. A glenosphere whose outline is mostly hidden by the humeral cup is reported as a
+  low-confidence estimate.
+* The fossa-floor line and the glenoid rim behind a baseplate are placed from proportions only — they are the
+  landmarks most worth checking, and glenosphere inclination depends on the first.
+* No real CT has been tested.
 
 ## How the numbers are judged
 
@@ -113,7 +119,8 @@ shoulder-muscle model is licence-gated and has no in-browser build. So the app r
 2. For a radiograph with an implant, choose the **glenosphere or head size**: its outline then calibrates the image,
    removing film magnification. Without it, distances use the stored pixel spacing (typically 5–15% too large) or are
    withheld.
-3. *Place the next one* walks through the landmarks; each shows what to click. Drag any point to adjust.
+3. Landmarks are placed automatically. Check them, drag any that are off (a magnifier appears), then press
+   *Confirm estimates*. *Place the next one* walks through anything that could not be placed.
 4. Read **Measurements** (click a row to highlight its construction lines) and **Appraisal**; export the report as
    text, the raw data as CSV, everything including landmark coordinates as JSON, or the annotated image.
 
@@ -142,7 +149,7 @@ npm run e2e
 * `src/measure/` — geometry, the protocol engine, one declarative protocol per study type, muscle analysis, the
   implant-choice synthesis, and the reference list.
 * `src/app/` — viewer (2D and multi-planar), panel, report builders; `src/worker/` — the Web Worker.
-* `npm test` runs 96 unit tests (measurement geometry on both sides and with a tilted patient, detection against
+* `npm test` runs 102 unit tests (measurement geometry on both sides and with a tilted patient, detection against
   phantom truth, anonymisation, reports). `npm run e2e` drives the built site in headless Chromium (needs Playwright):
   all six study types, a DICOM file with planted identifiers, landmark placement, muscle outlines, exports, and the
   no-network guarantee.

@@ -82,6 +82,16 @@ export class ImageView {
     this.draw();
   }
 
+  /** Zoom so that an image-space rectangle fills the view (with a margin). */
+  showRegion(x0, y0, x1, y1, margin = 0.3) {
+    if (!this.raster) return;
+    const bw = Math.max(8, x1 - x0) * (1 + 2 * margin), bh = Math.max(8, y1 - y0) * (1 + 2 * margin);
+    const s = Math.min(this.cssW / bw, this.cssH / bh, 12);
+    this.view = { scale: s, tx: this.cssW / 2 - ((x0 + x1) / 2) * s, ty: this.cssH / 2 - ((y0 + y1) / 2) * s };
+    this.fitted = false;
+    this.draw();
+  }
+
   /** Centre the view on an image point, optionally at a minimum zoom. */
   centerOn(p, minScale) {
     if (minScale && this.view.scale < minScale) this.view.scale = minScale;
