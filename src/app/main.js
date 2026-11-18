@@ -3,11 +3,12 @@
 import workerSource from 'worker-source';
 import { ImageView } from './imageview.js';
 import { Mpr } from './mpr.js';
-import { IMPLANTS, protocolFor, viewsFor } from '../measure/protocols/index.js';
+import { IMPLANTS, protocolFor, viewsFor, VIEW_LABEL } from '../measure/protocols/index.js';
 import { evaluate, evaluateFindings, appraise } from '../measure/core.js';
 import { circleFrom3, v3, scapularFrame } from '../measure/geom.js';
 import { anatomicVsReverse } from '../measure/decision.js';
-import { seedXray, lateralSignOf } from '../measure/seed.js';
+import { compareFilms } from '../measure/compare.js';
+import { seedXray, lateralSignOf, ssfPrior } from '../measure/seed.js';
 import { frames as learnedFrames, placeLearned } from '../detect/learned.js';
 import MODEL from '../detect/model.json' with { type: 'json' };
 import { MUSCLES, sampleRoi, roiStats, muscleResults } from '../measure/muscle.js';
@@ -23,6 +24,7 @@ const SHORT = {
   gs: 'GS', face: 'face', stem: 'stem', sgt: 'SGT', igr: 'IGR', acr: 'ACR', acu: 'ACU', ssf: 'SSF', gts: 'GT top', gtl: 'GT lat',
   canalM: 'canal', canalD: 'canal', stemM: '', stemD: '', head: 'head', pcA: '1', pcB: '2', pcC: '3', gmid: 'G mid', osteo: 'osteophyte',
   dtO: 'outer', dtI: 'inner', ga: 'Ant', gp: 'Post', scapAx: 'axis', post: 'post', tri: 'TS', ia: 'IA', gsup: 'Sup', ginf: 'Inf', sgr: 'Sup',
+  dtu: 'DT', acLine: 'acromion', hcl: 'shaft', shaftD: 'd', yc: 'Y', pa: 'post', aa: 'ant',
 };
 
 const worker = new Worker(URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' })));
@@ -49,7 +51,9 @@ let mpr = null;            // Mpr for the current CT
 let panelTimer = 0;
 
 const cur = () => state.items[state.cur] || null;
-const proto = (item = cur()) => (item ? protocolFor(state.implant, item.kind, item.view) : null);
+const proto = (item = cur()) => (item ? protocolFor(item.implant || state.implant, item.kind, item.view) : null);
+/** Study type of an image: each image carries its own (a pre-operative native film next to a post-operative reverse). */
+const typeOf = (item = cur()) => (item && item.implant) || state.implant;
 
 // ───────────────────────── worker messaging ─────────────────────────
 worker.onmessage = (e) => {
@@ -112,6 +116,7 @@ function loadNext() {
   if (!q) { $('progress').hidden = true; return; }
   state.loadingName = q.name;
   onProgress({ scope: 'load', fraction: 0.05, label: `Opening ${q.name}…` });
+  state.loadingImplant = state.implant;
   worker.postMessage(q.type === 'ct' ? { type: 'ct', seriesId: q.seriesId } : { type: 'xray', id: q.id, implant: state.implant });
   renderItems();
 }
@@ -120,7 +125,7 @@ function onXray(m) {
   const det = m.det || {};
   const lat = m.image.meta && m.image.meta.laterality;
   const item = {
-    uid: ++state.seq, kind: 'xray', name: m.sample ? 'Synthetic X-ray' : state.loadingName || 'X-ray', image: m.image, det, sample: !!m.sample,
+    uid: ++state.seq, implant: state.loadingImplant || state.implant, kind: 'xray', name: m.sample ? 'Synthetic X-ray' : state.loadingName || 'X-ray', image: m.image, det, sample: !!m.sample,
     view: /AX/i.test((m.image.meta && m.image.meta.viewPosition) || '') ? 'axillary' : 'ap',
     lateralSign: lateralSignOf(det, lat),
     calib: { size: null }, lm: {}, findings: {}, rimAngle: {}, truth: m.truth || null,
@@ -130,7 +135,7 @@ function onXray(m) {
 
 function onCt(m) {
   const item = {
-    uid: ++state.seq, kind: 'ct', name: m.sample ? 'Synthetic CT' : state.loadingName || 'CT', volume: m.volume, det: m.det || {}, sample: !!m.sample,
+    uid: ++state.seq, implant: state.loadingImplant || state.implant, kind: 'ct', name: m.sample ? 'Synthetic CT' : state.loadingName || 'CT', volume: m.volume, det: m.det || {}, sample: !!m.sample,
     view: 'ct', lm: {}, findings: {}, rois: [], truth: m.truth || null,
   };
   addItem(item);
@@ -176,6 +181,7 @@ function seed(item) {
   if (item.kind === 'xray') {
     const s = seedXray(p, d);
     Object.assign(set.values, s.values); Object.assign(set.state, s.state);
+    if (s.prior) set.prior = s.prior;
   } else {
     if (p.id === 'rsa-ct' && d.reverse) {
       const g = d.reverse.glenosphere;
@@ -234,9 +240,10 @@ function muscleAll(item) {
 }
 
 function decision() {
-  if (state.implant !== 'native') return null;
+  const natives = state.items.filter((i) => typeOf(i) === 'native');
+  if (!natives.length || (cur() && typeOf() !== 'native')) return null;
   const inp = { ...state.clinical, age: state.clinical.age === '' ? NaN : Number(state.clinical.age), fat: {} };
-  for (const item of state.items) {
+  for (const item of natives) {
     const b = assess(item);
     const by = Object.fromEntries(b.results.map((r) => [r.id, r]));
     const val = (id) => (by[id] && by[id].status !== 'pending' ? by[id].value : undefined);
@@ -261,6 +268,27 @@ function decision() {
     }
   }
   return anatomicVsReverse(inp);
+}
+
+// ───────────────────────── comparison with another film ─────────────────────────
+const comparable = (item) => item.kind === 'xray' && item.view === 'ap';
+function compareCandidates(item) { return state.items.filter((x) => x !== item && comparable(x)); }
+
+/** The comparison shown for an item: the chosen other film (default: the one before it), in the chosen order. */
+function comparisonFor(item) {
+  if (!comparable(item)) return null;
+  const others = compareCandidates(item);
+  if (!others.length) return null;
+  const other = others.find((x) => x.uid === item.compareWith) || others.filter((x) => state.items.indexOf(x) < state.items.indexOf(item)).pop() || others[0];
+  const thisLater = item.compareOrder !== 'thisEarlier';
+  const [e, c] = thisLater ? [other, item] : [item, other];
+  const res = compareFilms(assess(e), assess(c), { months: item.compareMonths > 0 ? item.compareMonths : null });
+  return { ...res, other, earlierName: e.name, currentName: c.name, thisLater, months: item.compareMonths || '' };
+}
+
+/** Comparisons the reader asked for (opened the Compare tab on), for the report. */
+function comparisons() {
+  return state.items.filter((i) => i.compareWith !== undefined && comparable(i)).map((i) => comparisonFor(i)).filter(Boolean);
 }
 
 // ───────────────────────── overlays: radiograph ─────────────────────────
@@ -351,6 +379,7 @@ function dragXray(key, pt, phase) {
     cur().rimAngle[id] = Math.atan2(pt.y - v.cy, pt.x - v.cx);
   }
   set.state[id] = 'manual';
+  if (phase !== 'move' && (id === 'sgt' || id === 'igr')) ssfPrior(proto(), set, cur().lateralSign);
   refresh({ light: phase === 'move' });
   if (phase !== 'move' && IMPLANT_LM.has(id)) relandmark();
 }
@@ -383,6 +412,7 @@ function relandmark() {
     set.state[lm.id] = 'estimated';
     moved++;
   }
+  ssfPrior(p, set, item.lateralSign);
   if (moved) { refresh(); toast(`${moved} estimated landmark${moved === 1 ? '' : 's'} re-placed around the corrected implant.`); }
 }
 
@@ -569,6 +599,7 @@ function nextMissing(includeOptional = false) {
 
 function donePlacing() {
   if (state.active && IMPLANT_LM.has(state.active)) setTimeout(relandmark, 0);
+  if ((state.active === 'sgt' || state.active === 'igr') && cur().kind === 'xray') ssfPrior(proto(), lmSet(), cur().lateralSign);
   const guided = state.guided;
   const next = guided ? nextMissing() : null;
   if (next) arm(next.id, true);
@@ -605,7 +636,7 @@ function select(i) {
     updateOblique(item);
     if (focus) mpr.setCursor(focus);
     mpr.setActive('axial');
-    if (state.tab === 'decision' && state.implant !== 'native') state.tab = 'landmarks';
+    if (state.tab === 'decision' && typeOf(item) !== 'native') state.tab = 'landmarks';
   } else {
     if (!xview) {
       xview = new ImageView($('xray-view'));
@@ -619,6 +650,7 @@ function select(i) {
     $('view').value = item.view;
     if (state.tab === 'muscle') state.tab = 'landmarks';
   }
+  if (state.tab === 'compare' && (!comparable(item) || !compareCandidates(item).length)) state.tab = 'landmarks';
   refresh();
 }
 
@@ -638,24 +670,27 @@ function focusLandmarks(item) {
 
 function renderItems() {
   const el = $('items');
-  let html = state.items.map((it, i) => `<button class="item${i === state.cur ? ' on' : ''}" role="tab" data-item="${i}"><span class="k">${it.kind === 'ct' ? 'CT' : 'X-ray'}</span>${panel.esc(it.name.replace(/^(X-ray|CT|Image)\s*/, '') || String(i + 1))}</button>`).join('');
+  const mixed = new Set(state.items.map((it) => typeOf(it))).size > 1;
+  const TYPE_SHORT = { reverse: 'Reverse', pyc: 'Hemi', native: 'Native' };
+  let html = state.items.map((it, i) => `<button class="item${i === state.cur ? ' on' : ''}" role="tab" data-item="${i}"><span class="k">${it.kind === 'ct' ? 'CT' : 'X-ray'}${mixed ? ` · ${TYPE_SHORT[typeOf(it)]}` : ''}</span>${panel.esc(it.name.replace(/^(X-ray|CT|Image)\s*/, '') || String(i + 1))}</button>`).join('');
   if (state.loadingName) html += `<span class="item loading">${panel.esc(state.loadingName)}…</span>`;
   el.innerHTML = html;
 }
 
 function renderStudy(item, b) {
-  for (const btn of $('implant').querySelectorAll('button')) btn.classList.toggle('on', btn.dataset.implant === state.implant);
+  const T = typeOf(item);
+  for (const btn of $('implant').querySelectorAll('button')) btn.classList.toggle('on', btn.dataset.implant === T);
   const notes = [];
   const d = item.det || {};
   if (d.error) notes.push(`<span>${panel.esc(d.error)}</span>`);
   if (item.kind === 'xray') {
     const weak = d.reverse && d.reverse.glenosphere.score < 0.6;
-    if (weak && state.implant === 'reverse') notes.push('<span>The glenosphere was found with low confidence. Check its circle before reading any number: drag the centre and the edge handle, or place it again with three clicks on the dome outline.</span>');
-    if (!d.reverse && !d.error && state.implant === 'reverse' && d.implant === 'reverse') notes.push('<span>The implant could not be found automatically on this image. Place the glenosphere by hand: press + next to "Glenosphere outline" and click three points on the dome; the bony landmarks are then estimated around it when you press Detect again.</span>');
-    if (state.implant === 'pyc' && !d.head && !d.error && d.implant === 'pyc') notes.push('<span>The prosthetic head could not be found automatically. Place it by hand with three clicks on its outline.</span>');
+    if (weak && T === 'reverse') notes.push('<span>The glenosphere was found with low confidence. Check its circle before reading any number: drag the centre and the edge handle, or place it again with three clicks on the dome outline.</span>');
+    if (!d.reverse && !d.error && T === 'reverse' && d.implant === 'reverse') notes.push('<span>The implant could not be found automatically on this image. Place the glenosphere by hand: press + next to "Glenosphere outline" and click three points on the dome; the bony landmarks are then estimated around it when you press Detect again.</span>');
+    if (T === 'pyc' && !d.head && !d.error && d.implant === 'pyc') notes.push('<span>The prosthetic head could not be found automatically. Place it by hand with three clicks on its outline.</span>');
     for (const w of item.image.warnings || []) notes.push(`<span>${panel.esc(w)}</span>`);
   } else {
-    if (state.implant === 'reverse' && !d.reverse) notes.push('<span>No glenosphere was found automatically in this scan. Place the glenosphere by hand, or switch the study type.</span>');
+    if (T === 'reverse' && !d.reverse) notes.push('<span>No glenosphere was found automatically in this scan. Place the glenosphere by hand, or switch the study type.</span>');
     if (d.metal && d.metal.saturated) notes.push('<span class="info">Metal is clipped at the scanner\'s maximum CT number; implant edges are taken at half-maximum and may read slightly large.</span>');
     for (const w of (item.volume.info && item.volume.info.warnings) || []) notes.push(`<span>${panel.esc(w)}</span>`);
   }
@@ -680,7 +715,11 @@ function renderStudy(item, b) {
   }
   $('calib').innerHTML = html;
   $('anon-body').innerHTML = panel.anonView(item.sample ? null : state.report);
-  $('view-field').hidden = viewsFor(state.implant).length < 2;
+  const views = viewsFor(T);
+  $('view-field').hidden = views.length < 2;
+  const sel = $('view');
+  if (sel.dataset.views !== views.join()) { sel.innerHTML = views.map((v) => `<option value="${v}">${VIEW_LABEL[v]}</option>`).join(''); sel.dataset.views = views.join(); }
+  sel.value = item.view;
   $('btn-flip').textContent = `Humerus: ${item.lateralSign > 0 ? 'right' : 'left'} of image`;
   $('btn-lines').classList.toggle('on', state.showLines);
 }
@@ -690,7 +729,8 @@ function renderTabs(b) {
   const tabs = document.querySelectorAll('.tabs button');
   for (const t of tabs) {
     if (t.dataset.tab === 'muscle') t.hidden = item.kind !== 'ct';
-    if (t.dataset.tab === 'decision') t.hidden = state.implant !== 'native';
+    if (t.dataset.tab === 'decision') t.hidden = typeOf(item) !== 'native';
+    if (t.dataset.tab === 'compare') t.hidden = !comparable(item) || !compareCandidates(item).length;
     t.classList.toggle('on', t.dataset.tab === state.tab);
     if (t.dataset.tab === 'measure') {
       const c = b.appraisal.counts;
@@ -698,7 +738,7 @@ function renderTabs(b) {
       t.innerHTML = `Measurements${badge}`;
     }
   }
-  for (const id of ['landmarks', 'measure', 'muscle', 'decision', 'appraisal']) $(`tab-${id}`).hidden = id !== state.tab;
+  for (const id of ['landmarks', 'measure', 'muscle', 'decision', 'compare', 'appraisal']) $(`tab-${id}`).hidden = id !== state.tab;
 }
 
 function renderPanel(b) {
@@ -728,6 +768,10 @@ function renderPanel(b) {
   } else if (state.tab === 'decision') {
     $('decision').innerHTML = panel.decisionView(decision(), state.clinical);
     panel.applyGeometry($('tab-decision'));
+  } else if (state.tab === 'compare') {
+    const cmp = comparisonFor(item);
+    if (cmp && item.compareWith === undefined) item.compareWith = cmp.other.uid;
+    $('compare').innerHTML = cmp ? panel.compareView(cmp, compareCandidates(item)) : '<p class="note">Comparison needs a second AP radiograph in the study. Open both films together (select or drop them at once).</p>';
   } else if (state.tab === 'appraisal') {
     let html = panel.appraisalView(b.appraisal);
     const others = state.items.filter((x) => x !== item);
@@ -794,7 +838,8 @@ function save(name, mime, content) {
 }
 
 function reportText() {
-  return buildText(bundles(), decision(), { implantLabel: IMPLANTS.find((x) => x.id === state.implant).label });
+  const types = [...new Set(state.items.map((i) => typeOf(i)))];
+  return buildText(bundles(), decision(), { implantLabel: types.map((t) => IMPLANTS.find((x) => x.id === t).label).join(' + '), comparisons: comparisons() });
 }
 
 async function copyReport() {
@@ -843,6 +888,7 @@ function openSample(modality) {
   state.report = null; state.items = []; state.cur = -1; state.queue = []; state.autoSwitched = false; state.implantLocked = true;
   showWorkspace();
   state.loadingName = modality === 'ct' ? 'Synthetic CT' : 'Synthetic X-ray';
+  state.loadingImplant = state.implant;
   renderItems();
   worker.postMessage({ type: 'sample', modality, kind: { reverse: 'reverse', pyc: 'hemi', native: 'native' }[state.implant] });
 }
@@ -855,6 +901,7 @@ function setImplant(id, lock = true) {
   if (cur()) {
     disarm(); state.selMetric = null;
     const item = cur();
+    item.implant = id;
     if (item.kind === 'xray' && !viewsFor(id).includes(item.view)) item.view = 'ap';
     if ((state.tab === 'decision' && id !== 'native') || (state.tab === 'muscle' && item.kind !== 'ct')) state.tab = 'landmarks';
     refresh();
@@ -907,7 +954,7 @@ function bind() {
   $('btn-yview').addEventListener('click', () => {
     const f = scapFrame(cur());
     if (!f) { toast('Mark the trigonum spinae and the glenoid (or glenosphere) first — the Y-view is built from them.'); return; }
-    mpr.setCursor(v3.sub(f.ref, v3.mul(f.lat, state.implant === 'reverse' ? 30 : 18)));
+    mpr.setCursor(v3.sub(f.ref, v3.mul(f.lat, typeOf() === 'reverse' ? 30 : 18)));
     mpr.setActive('oblique');
     toast('Scroll in the Y-view pane to the most lateral slice where the scapular spine still joins the body.');
   });
@@ -952,6 +999,9 @@ function bind() {
     const t = e.target, item = cur();
     if (t.dataset.finding) { item.findings[proto().id][t.dataset.finding] = t.value; refresh(); }
     else if (t.dataset.clin) { state.clinical[t.dataset.clin] = t.type === 'checkbox' ? t.checked : t.value; refresh(); }
+    else if (t.dataset.cmp === 'other') { item.compareWith = Number(t.value); refresh(); }
+    else if (t.dataset.cmp === 'order') { item.compareOrder = t.value; refresh(); }
+    else if (t.dataset.cmp === 'months') { const v = Number(t.value); item.compareMonths = v > 0 ? v : null; refresh(); }
     else if (t.id === 'cal-size') { item.calib.size = t.value === 'other' ? 37 : t.value ? Number(t.value) : null; refresh(); }
     else if (t.id === 'cal-custom') { const v = Number(t.value); item.calib.size = v >= 20 && v <= 70 ? v : null; refresh(); }
   });
@@ -959,7 +1009,7 @@ function bind() {
   $('btn-copy').addEventListener('click', copyReport);
   $('btn-txt').addEventListener('click', () => save('shoulder-assessment.txt', 'text/plain', reportText()));
   $('btn-csv').addEventListener('click', () => save('shoulder-measurements.csv', 'text/csv', buildCsv(bundles())));
-  $('btn-json').addEventListener('click', () => save('shoulder-assessment.json', 'application/json', JSON.stringify(buildJson(bundles(), decision(), { implant: state.implant }), null, 2)));
+  $('btn-json').addEventListener('click', () => save('shoulder-assessment.json', 'application/json', JSON.stringify(buildJson(bundles(), decision(), { implant: state.implant, comparisons: comparisons() }), null, 2)));
   $('btn-png').addEventListener('click', exportPng);
 
   window.addEventListener('keydown', (e) => {
@@ -987,21 +1037,21 @@ function redetect() {
   if (item.kind === 'ct') {
     const set = lmSet();
     const near = set.values.head ? set.values.head.c : mpr.cursor;
-    const h = detectHeadSphere(item.volume, { near, mode: state.implant === 'pyc' ? 'implant' : 'bone' });
+    const h = detectHeadSphere(item.volume, { near, mode: typeOf(item) === 'pyc' ? 'implant' : 'bone' });
     if (h) { setLm('head', { c: h.center, r: h.radius }, 'auto'); refresh(); } else toast('No sphere found near the crosshair.');
     return;
   }
   onProgress({ scope: 'load', fraction: 0.5, label: 'Looking for the implant…' });
   const im = item.image;
-  item.det = { ...(item.det || {}), implant: state.implant };
-  worker.postMessage({ type: 'detect', reqId: item.uid, implant: state.implant, image: { width: im.width, height: im.height, data: im.data, pixelSpacing: im.pixelSpacing } });
+  item.det = { ...(item.det || {}), implant: typeOf(item) };
+  worker.postMessage({ type: 'detect', reqId: item.uid, implant: typeOf(item), image: { width: im.width, height: im.height, data: im.data, pixelSpacing: im.pixelSpacing } });
 }
 
 bind();
 // Test hook: lets the end-to-end test read state without scraping the DOM. Holds no patient identifiers.
 window.__rsa = {
   state, assess: () => (cur() ? assess(cur()) : null), decision, setLm: (id, v) => { setLm(id, v); refresh(); }, select, reportText,
-  csv: () => buildCsv(bundles()), json: () => buildJson(bundles(), decision(), { implant: state.implant }),
+  csv: () => buildCsv(bundles()), json: () => buildJson(bundles(), decision(), { implant: state.implant, comparisons: comparisons() }), compare: () => (cur() ? comparisonFor(cur()) : null),
   screen: (p) => { const r = xview.canvas.getBoundingClientRect(), q = xview.toScreen(p); return { x: r.left + q.x, y: r.top + q.y }; },
   ctScreen: (paneId, w) => { const pane = mpr.panes[paneId], r = pane.view.canvas.getBoundingClientRect(), q = pane.view.toScreen(mpr.toPane(pane, w)); return { x: r.left + q.x, y: r.top + q.y }; },
   ctCursor: (w) => mpr.setCursor(w),

@@ -53,6 +53,17 @@ export function buildText(bundles, decision, opts = {}) {
     }
     L.push('');
   }
+  for (const c of opts.comparisons || []) {
+    L.push('='.repeat(72));
+    L.push(`COMPARISON — earlier: ${c.earlierName}; current: ${c.currentName}${c.months ? ` (${c.months} months apart)` : ''}`);
+    L.push(c.typeText);
+    L.push(`Scale: ${c.scale.text}`);
+    for (const n of c.notes) L.push(`  ! ${n}`);
+    for (const r of c.rows) L.push(`  ${STATUS_MARK[r.status].padEnd(14)} ${r.label}: ${r.earlierText} → ${r.currentText} (${r.changeText}). ${r.say}`);
+    for (const f of c.findings) L.push(`  ${STATUS_MARK[f.status].padEnd(14)} ${f.label}: ${f.earlierText} → ${f.currentText}. ${f.say}`);
+    for (const k of ['ladermann2014', 'otto2013', 'schippers2026', 'mitrousias2026']) refs.add(k);
+    L.push('');
+  }
   if (decision && decision.verdict !== 'insufficient') {
     L.push('='.repeat(72));
     L.push('ANATOMIC VERSUS REVERSE REPLACEMENT');
@@ -111,6 +122,12 @@ export function buildJson(bundles, decision, opts = {}) {
       })),
       findings: b.findings.map((f) => ({ id: f.id, label: f.label, value: f.answered ? f.value : null, status: f.status })),
       appraisal: { status: b.appraisal.verdict.status, headline: b.appraisal.verdict.headline, combined: b.appraisal.extra, caveats: b.appraisal.caveats },
+    })),
+    comparisons: (opts.comparisons || []).map((c) => ({
+      earlier: c.earlierName, current: c.currentName, monthsApart: c.months || null, type: c.type, scale: { mode: c.scale.mode, unit: c.scale.unit, note: c.scale.text },
+      notes: c.notes,
+      changes: c.rows.map((r) => ({ id: r.id, label: r.label, unit: r.unit, earlier: +r.earlier.toFixed(3), current: +r.current.toFixed(3), change: +r.change.toFixed(3), status: r.status, comment: r.say })),
+      findings: c.findings.map((f) => ({ id: f.id, label: f.label, earlier: f.earlierText, current: f.currentText, status: f.status })),
     })),
     anatomicVersusReverse: decision && decision.verdict !== 'insufficient'
       ? { verdict: decision.verdict, headline: decision.headline, score: +decision.score.toFixed(2), factors: decision.factors.map((f) => ({ label: f.label, points: f.points, text: f.text })), caveats: decision.caveats }

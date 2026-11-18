@@ -179,4 +179,25 @@ export function anonView(report) {
     ${report.burnedInRisk ? `<p class="warn">${report.burnedInRisk} image${report.burnedInRisk === 1 ? '' : 's'} may carry text burned into the picture itself (screenshots, secondary captures). That stays on this device, but it would appear in an exported annotated image.</p>` : ''}`;
 }
 
+export function compareView(c, candidates) {
+  const opts = candidates.map((x) => `<option value="${x.uid}"${x === c.other ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+  const form = `<div class="clin cmp-form">
+      <label><span>Compare with</span><select data-cmp="other">${opts}</select></label>
+      <label><span>The film on screen is the</span><select data-cmp="order"><option value="thisLater"${c.thisLater ? ' selected' : ''}>later film</option><option value="thisEarlier"${c.thisLater ? '' : ' selected'}>earlier film</option></select></label>
+      <label><span>Months between the films (optional)</span><input type="number" min="0" max="600" step="1" data-cmp="months" value="${esc(c.months)}" placeholder="months"></label>
+    </div>`;
+  const row = (r) => `<tr class="${r.status}"><td><b>${esc(r.label)}</b><br><span class="cmp-say">${esc(r.say)}</span></td><td class="num">${esc(r.earlierText)}</td><td class="num">${esc(r.currentText)}</td><td class="num">${chip(r.status, r.changeText)}</td></tr>`;
+  const frow = (f) => `<tr class="${f.status}"><td><b>${esc(f.label)}</b><br><span class="cmp-say">${esc(f.say)}</span></td><td>${esc(f.earlierText)}</td><td>${esc(f.currentText)}</td><td>${chip(f.status, f.status === 'good' ? 'same' : 'changed')}</td></tr>`;
+  const table = c.rows.length || c.findings.length
+    ? `<table class="cmp"><thead><tr><th></th><th>Earlier</th><th>Current</th><th>Change</th></tr></thead><tbody>${c.rows.map(row).join('')}${c.findings.map(frow).join('')}</tbody></table>`
+    : '<p class="note">Nothing can be compared yet: the same landmarks must be placed on both films.</p>';
+  return `${form}
+    <p class="note"><b>Earlier:</b> ${esc(c.earlierName)} · <b>Current:</b> ${esc(c.currentName)}. ${esc(c.typeText)}</p>
+    <p class="note">${esc(c.scale.text)}</p>
+    ${c.notes.map((n) => `<p class="alert warn">${esc(n)}</p>`).join('')}
+    ${table}
+    <p class="note">Changes are graded only where a threshold has been published or is a stated convention (arm lengthening 0–2 cm; migration ≥ 5 mm or ≥ 5° as a change of position). Both films must be true AP views in the same rotation; differences in arm position alone move most of these numbers.</p>
+    ${refsHtml(['ladermann2014', 'ladermann2012', 'otto2013', 'schippers2026', 'mitrousias2026', 'sanchezsotelo2001', 'rhee2025'])}`;
+}
+
 export { bandFor };

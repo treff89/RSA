@@ -59,13 +59,32 @@ try {
     await page.click('#btn-demo');
     const r = await results(page);
     const pending = Object.entries(r).filter(([, x]) => x.s === 'pending').map(([k]) => k);
-    const allowed = { 'native-ap': ['rsaAngle', 'osteophyte', 'dti'] }[proto] || [];
+    const allowed = { 'native-ap': ['rsaAngle', 'osteophyte', 'dti', 'laa', 'atd', 'hara', 'shara'], 'rsa-ap': ['dwa'], 'pyc-ap': ['schOX', 'schOY', 'shara'] }[proto] || [];
     assert.deepEqual(pending.filter((k) => !allowed.includes(k)), [], `${proto}: everything measurable is measured`);
     if (proto === 'rsa-ap') {
       await page.selectOption('#cal-size', '38');
       const q = await results(page);
       assert.ok(Math.abs(q.gsApparent.v - 38) < 0.6, 'glenosphere diameter recovered');
       assert.ok(q.lsa.v > 40 && q.lsa.v < 130 && q.dsa.v > 10 && q.dsa.v < 100);
+    }
+    if (proto === 'native-ap') {
+      // the scapular Y-view protocol: four clicks give posterior acromial height, tilt and coverage
+      await page.selectOption('#view', 'y');
+      assert.equal(await page.evaluate(() => window.__rsa.assess().protocol.id), 'native-y');
+      const im = await page.evaluate(() => ({ w: window.__rsa.state.items[0].image.width, h: window.__rsa.state.items[0].image.height }));
+      await page.click('#btn-fit');
+      const pts = { yc: [0.5, 0.35], ia: [0.5, 0.75], pa: [0.42, 0.25], aa: [0.58, 0.22] };
+      for (const [id, [fx, fy]] of Object.entries(pts)) {
+        await page.click(`[data-act="lm-place"][data-lm="${id}"]`);
+        const sp = await page.evaluate((p) => window.__rsa.screen(p), { x: fx * im.w, y: fy * im.h });
+        await page.mouse.click(sp.x, sp.y);
+      }
+      const y = await results(page);
+      assert.ok(y.pah.s !== 'pending' && y.pat.s !== 'pending' && y.pac.s !== 'pending', 'Y-view measurements computed');
+      await page.click('[data-tab="measure"]');
+      await shot(page, 'native-y-measurements');
+      await page.selectOption('#view', 'ap');
+      await page.click('[data-tab="landmarks"]');
     }
     if (proto === 'native-ct') {
       const t = await page.evaluate(() => window.__rsa.state.items[0].truth);
@@ -168,6 +187,47 @@ try {
     await shot(page, 'dicom-xray');
     await page.close();
     ok('DICOM radiograph: anonymised on load, detected, calibrated, landmarks placed by click and drag');
+  }
+
+  // ── two films of the same reverse compared; each image keeps its own study type ──
+  {
+    const dir = join(tmpdir(), `rsa-e2e-cmp-${process.pid}`);
+    mkdirSync(dir, { recursive: true });
+    const files = [5, 9].map((seed, k) => {
+      const ph = makePhantom({ kind: 'reverse', side: 'L', seed });
+      const { width, height, data } = ph.image;
+      let mn = Infinity, mxv = -Infinity;
+      for (const v of data) { if (v < mn) mn = v; if (v > mxv) mxv = v; }
+      const px = new Uint16Array(width * height);
+      for (let i = 0; i < px.length; i++) px[i] = Math.round(((data[i] - mn) / (mxv - mn)) * 4095);
+      const f = join(dir, `film${k}.dcm`);
+      writeFileSync(f, xray({ rows: height, cols: width, pixels: px, bits: 16, bitsStored: 12, modality: 'DX', extra: [['00181164', 'DS', '0.22\\0.22'], ['00181114', 'DS', '1.1'], ['00200062', 'CS', 'L'], ['00185101', 'CS', 'AP']] }));
+      return f;
+    });
+    const page = await newPage();
+    await page.setInputFiles('#in-files', files);
+    await loaded(page, 2);
+    await page.click('[data-item="1"]');
+    assert.ok(await page.isVisible('[data-tab="compare"]'), 'compare tab offered with two AP films');
+    await page.click('[data-tab="compare"]');
+    await page.fill('[data-cmp="months"]', '12'); await page.dispatchEvent('[data-cmp="months"]', 'change');
+    const cmp = await page.evaluate(() => window.__rsa.compare());
+    assert.equal(cmp.type, 'followup-reverse');
+    assert.ok(cmp.rows.some((r) => r.id === 'lsa') && cmp.rows.some((r) => r.id === 'atd'), 'paired measurements listed');
+    assert.ok((await page.locator('table.cmp tbody tr').count()) >= 4);
+    await shot(page, 'compare');
+    assert.match(await page.evaluate(() => window.__rsa.reportText()), /COMPARISON — earlier/);
+    assert.equal(await page.evaluate(() => window.__rsa.json().comparisons.length), 1);
+    // re-type the earlier film as a native shoulder: only that film changes
+    await page.click('[data-item="0"]');
+    await page.click('#implant [data-implant="native"]');
+    const types = await page.evaluate(() => window.__rsa.state.items.map((i) => i.implant));
+    assert.deepEqual(types, ['native', 'reverse']);
+    await page.click('[data-item="1"]');
+    assert.equal(await page.evaluate(() => window.__rsa.assess().protocol.id), 'rsa-ap');
+    assert.equal(await page.evaluate(() => window.__rsa.compare().type), 'preop-reverse');
+    await page.close();
+    ok('two films compared; per-image study type; comparison in the exports');
   }
 
   assert.deepEqual(problems, [], 'no console errors, page errors or external requests');

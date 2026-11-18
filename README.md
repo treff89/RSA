@@ -10,9 +10,18 @@ of that range and a frank appraisal of what is and is not within it.
 
 | Study type | X-ray | CT |
 |---|---|---|
-| **Reverse replacement** | Lateralisation and distalisation shoulder angles, acromion–tuberosity distance, lateral offsets, glenosphere inclination, inferior overhang, stem alignment, filling ratios; notching, fixation, acromial fracture | Glenosphere version and inclination in 3D, measured diameter, overhang, centre-of-rotation offset; seating, screws, notching, fractures; muscles |
-| **Pyrocarbon hemiarthroplasty** | Centre-of-rotation deviation from the native best-fit circle, head size mismatch, head height, an explicit **overstuffing** verdict, acromiohumeral distance, glenoid medialisation, stem fit; axillary subluxation | Glenoid version and inclination, head centring (two subluxation indices), erosion; muscles |
-| **Native shoulder** | Critical shoulder angle, acromion index, acromiohumeral distance, inclination, RSA angle, head size, Samilson–Prieto, deltoid tuberosity index; Hamada, Favard; axillary version and subluxation | 3D Friedman version, inclination, subluxation, Walch type suggestion; muscle fat fraction and atrophy |
+| **Reverse replacement** | Lateralisation and distalisation shoulder angles, acromion–tuberosity distance, lateral offsets, deltoid moment arm and wrapping angle, glenosphere inclination, inferior overhang, stem alignment, filling ratios, arm position (HARA, SHARA); notching, fixation, acromial fracture | Glenosphere version and inclination in 3D, measured diameter, overhang, centre-of-rotation offset; seating, screws, notching, fractures; muscles |
+| **Pyrocarbon hemiarthroplasty** | Centre-of-rotation deviation from the native best-fit circle, head size mismatch, head height, an explicit **overstuffing** verdict, acromiohumeral distance, glenoid medialisation, Schippers' medialisation and upward migration (as a share of shaft diameter), stem fit; axillary subluxation | Glenoid version and inclination, head centring (two subluxation indices), erosion; muscles |
+| **Native shoulder** | Critical shoulder angle, acromion index, lateral acromial angle, acromiohumeral and acromion–tuberosity distances, inclination, RSA angle, head size, Samilson–Prieto, deltoid tuberosity index; Hamada, Favard; axillary version and subluxation; **scapular Y-view**: posterior acromial height, tilt and coverage (Gerber's group, posterior instability) | 3D Friedman version, inclination, subluxation, Walch type suggestion; muscle fat fraction and atrophy |
+
+**Compare with another film.** With two AP radiographs open, the *Compare* tab pairs them (earlier and current) and lists
+what changed: arm lengthening and humeral lateralisation from a pre-operative film; on follow-up, the acromion–tuberosity
+distance (a rise suggests acromial fracture), stem subsidence relative to the tuberosity, glenosphere tilt and centre of
+rotation (baseplate shift), stem tilt, Schippers' medialisation and upward migration (graded per month when you enter the
+interval), and progression of the gradings (notching, erosion, lucency). Distances are put on a common scale — the
+implant on both films, or the glenoid height carried over from a calibrated film — and the tab warns when the arm hangs
+in a different position (HARA differs by more than 10°), because that alone moves the LSA and DSA. Open both films
+together; each image can be given its own study type (for example a pre-operative native film next to a reverse).
 
 For native shoulders an **Implant choice** tab combines the measurements with age and cuff status into a transparent,
 weighted reading of anatomic versus reverse replacement.
@@ -58,6 +67,9 @@ analysed as that type. On a radiograph **every landmark is placed automatically*
 * **Correct the implant and the rest follows.** Dragging or re-placing the glenosphere, its face, the head or the
   stem re-places every bony landmark that is still an estimate; anything you placed or confirmed stays where it is.
 * **CT**: the implant and humeral head are detected; bony CT landmarks are placed by you.
+* **Not yet learned** (placed by you): the deltoid tuberosity, the humeral shaft diameter and centre line, and the four
+  Y-view points. The supraspinatus fossa line on hemi and native films and the native acromial undersurface line start
+  from rough estimates built from the glenoid and acromion points, drawn dashed to be checked.
 * **Gradings are yours** — notching, lucency, Hamada, Walch, erosion.
 
 ### How well does it work? Candidly:
@@ -99,6 +111,10 @@ descriptive. Each citation is tagged with how it was checked while the tool was 
 * **Overstuffing**: no radiographic criterion has been prospectively validated, and experienced surgeons agree poorly
   by eye (kappa ≈ 0.25). The verdict combines centre-of-rotation deviation (> 3 mm, medial or superior), head size and
   head height, and says so.
+* **Newer measures, frankly**: the deltoid moment arm and wrapping angle are descriptive (one series' means, no
+  cut-off); the lateral acromial angle's 70° limit comes from eight MRI shoulders; the posterior acromial height's
+  23 mm comes from one case-control series (odds ratio 39), with tilt and coverage graded at pragmatic midpoints
+  between group means; Schippers' indices are meaningful only as change between films.
 * **Anatomic versus reverse** is a weighted checklist with every weight on show. It is not a validated prediction —
   none exists — and it says plainly when the cuff, the deciding factor, has not been assessed.
 
@@ -157,10 +173,10 @@ npm run e2e
 * `src/app/` — viewer (2D and multi-planar), panel, report builders; `src/worker/` — the Web Worker.
 * `test/corpus/` evaluates the pipeline on a local corpus of real films and learns the landmark model
   (`eval.mjs`, `learn.mjs`, `draw.py`); the corpus itself is not distributed.
-* `npm test` runs 102 unit tests (measurement geometry on both sides and with a tilted patient, detection against
+* `npm test` runs 112 unit tests (measurement geometry on both sides and with a tilted patient, detection against
   phantom truth, anonymisation, reports). `npm run e2e` drives the built site in headless Chromium (needs Playwright):
-  all six study types, a DICOM file with planted identifiers, landmark placement, muscle outlines, exports, and the
-  no-network guarantee.
+  all six study types, the Y-view, a DICOM file with planted identifiers, landmark placement, muscle outlines, two films
+  compared, exports, and the no-network guarantee.
 
 Pushing to `main` runs the tests and publishes `dist/` to the `gh-pages` branch (Settings → Pages → Deploy from a
 branch → `gh-pages` / root).

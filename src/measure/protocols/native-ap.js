@@ -1,7 +1,16 @@
 // Native shoulder — true AP (Grashey) radiograph. Feeds the anatomic-versus-reverse synthesis (../decision.js).
 import { shape } from '../core.js';
 import { angleAt, signedDistToLine, projectOnLine } from '../geom.js';
-import { C, HELP, lateral, supInf, tiltVsFossa, sub, add, mul, dot, unit, mid, dist } from './xray-common.js';
+import { C, HELP, lateral, supInf, medLat, tiltVsFossa, postureMetrics, sub, add, mul, dot, unit, mid, dist, DEG } from './xray-common.js';
+
+/** Lateral acromial angle (Banas): glenoid line pointing inferior vs acromial undersurface pointing lateral. 90° = parallel-faced. */
+export function lateralAcromialAngle(ctx) {
+  const g = supInf({ a: ctx.L.sgt, b: ctx.L.igr });
+  const down = unit(sub(g.b, g.a));
+  const l = medLat(ctx.L.acLine, ctx);
+  const d = unit(sub(l.b, l.a));
+  return Math.acos(Math.max(-1, Math.min(1, dot(down, d)))) * DEG;
+}
 
 const G_ACR = 'Acromion & cuff';
 const G_GLEN = 'Glenoid';
@@ -24,8 +33,11 @@ export default {
     { id: 'acr', kind: 'point', label: 'Lateral acromion', group: 'Scapula', help: 'Most inferolateral point of the acromion.' },
     { id: 'acu', kind: 'point', label: 'Acromion undersurface', group: 'Scapula', help: HELP.acu },
     { id: 'ssf', kind: 'line', label: 'Supraspinatus fossa floor', group: 'Scapula', help: HELP.ssf },
+    { id: 'acLine', kind: 'line', label: 'Acromial undersurface line', group: 'Scapula', optional: true, help: 'Along the inferior cortex of the acromion: one end at its medial part above the joint, the other at its lateral tip. Defines the lateral acromial angle.' },
     { id: 'gmid', kind: 'point', label: 'Glenoid — fossa-floor intersection', group: 'Scapula', optional: true, help: 'The point on the glenoid articular surface where the line of the supraspinatus fossa floor meets it. Together with the inferior rim it defines the inferior half of the glenoid for the RSA angle.' },
     { id: 'gtl', kind: 'point', label: 'Greater tuberosity — lateral', group: 'Humerus', help: HELP.gtl },
+    { id: 'gts', kind: 'point', label: 'Greater tuberosity — top', group: 'Humerus', optional: true, help: HELP.gts },
+    { id: 'hcl', kind: 'line', label: 'Humeral shaft centre line', group: 'Humerus', optional: true, help: HELP.hcl },
     { id: 'osteo', kind: 'line', label: 'Inferior humeral osteophyte', group: 'Humerus', optional: true, help: 'Length of the inferior humeral ("goat\'s beard") osteophyte: from its base at the articular margin to its tip. Leave out if there is none.' },
     { id: 'dtO', kind: 'line', label: 'Shaft outer width above deltoid tuberosity', group: 'Bone quality', optional: true, help: 'Outer cortex to outer cortex, directly above the upper end of the deltoid tuberosity, where the outer cortices become parallel.' },
     { id: 'dtI', kind: 'line', label: 'Shaft inner width at the same level', group: 'Bone quality', optional: true, help: 'Inner (endosteal) cortex to inner cortex at the same level.' },
@@ -79,6 +91,30 @@ export default {
         const u = unit(sub(ctx.L.acu, c));
         return [shape.dim(add(c, mul(u, ctx.L.head.r)), ctx.L.acu)];
       },
+    },
+    {
+      id: 'laa', label: 'Lateral acromial angle', unit: '°', group: G_ACR,
+      needs: ['sgt', 'igr', 'acLine'],
+      compute: (ctx) => lateralAcromialAngle(ctx),
+      target: '≥ 75°', gauge: { min: 55, max: 105 }, evidence: 'published', refs: ['banas1995'],
+      what: 'Angle between the glenoid line and the undersurface of the acromion, opening towards the joint (Banas). 90° = the acromial undersurface is perpendicular to the glenoid; a smaller angle means the acromion slopes down laterally and narrows the outlet.',
+      caveat: 'Described on oblique coronal MRI (mean 78°, range 64–99°); applying it to an AP radiograph is an adaptation, and the 70° limit comes from eight shoulders. A rotated film changes the apparent acromial slope.',
+      bands: [
+        { upTo: 70.0001, status: 'out', tag: 'Low', say: 'At or below 70°: in the original series every shoulder at this level had a full-thickness cuff tear. An acromion that slopes this far down laterally crowds the cuff outlet.' },
+        { upTo: 75, status: 'borderline', tag: 'Slightly low', say: 'Between 70° and 75° — the range some authors treat as the lower limit of normal.' },
+        { status: 'good', tag: 'Normal', say: 'At or above 75°, around or above the original series\' mean of 78°.' },
+      ],
+      draw: (ctx) => { const g = glenoidLine(ctx); return [shape.ray(g.a, g.b, { dash: true }), shape.ray(ctx.L.acLine.a, ctx.L.acLine.b, { dash: true })]; },
+    },
+    {
+      id: 'atd', label: 'Acromion–tuberosity distance', unit: 'mm', group: G_ACR, scale: true,
+      needs: ['acu', 'gts'],
+      compute: (ctx) => dist(ctx.L.acu, ctx.L.gts) * ctx.mm,
+      gauge: { min: 0, max: 40 }, evidence: 'descriptive', refs: ['ladermann2014', 'jobin2012'],
+      what: 'Straight distance from the undersurface of the acromion to the top of the greater tuberosity — the same measurement as on the reverse protocol, so that arm lengthening can be read when this film is compared with a post-operative one.',
+      caveat: 'Descriptive. Carries the film magnification unless calibrated; the comparison view rescales it between films.',
+      bands: [{ status: 'info', tag: '', say: 'Baseline before surgery. Compared with the post-operative film it gives the deltoid lengthening (0–2 cm is the range usually recommended for a reverse).' }],
+      draw: (ctx) => [shape.dim(ctx.L.acu, ctx.L.gts)],
     },
     {
       id: 'supMig', label: 'Head centre above glenoid centre', unit: 'mm', group: G_ACR, scale: true,
@@ -155,6 +191,7 @@ export default {
       ],
       draw: ({ L }) => [shape.line(L.dtO.a, L.dtO.b), shape.line(L.dtI.a, L.dtI.b, { dash: true })],
     },
+    ...postureMetrics(['hcl']),
   ],
 
   findings: [

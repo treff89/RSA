@@ -2,13 +2,35 @@
 import { shape } from '../core.js';
 import { signedDistToLine, projectOnLine } from '../geom.js';
 import {
-  C, HELP, STEM_FINDINGS, lateral, supInf, shaftAxis, varusAngle, proxDist, anatomicCircle,
-  sub, add, mul, dot, unit, dist,
+  C, HELP, STEM_FINDINGS, lateral, supInf, shaftAxis, varusAngle, proxDist, anatomicCircle, medLat, postureMetrics,
+  sub, add, mul, dot, unit, perp, dist,
 } from './xray-common.js';
 
 const G_OVER = 'Head size & position (overstuffing)';
 const G_JOINT = 'Joint';
 const G_HUM = 'Stem';
+const G_SCH = 'Medialisation & upward migration (Schippers)';
+
+/**
+ * Schippers' orthonormal frame: x = supraspinatus fossa line (unit, pointing lateral); y = its perpendicular through
+ * the lateral acromion (pointing up); O = their intersection. OX = how far the medial edge of the head lies medial
+ * of O along x; OY = how far the top of the head lies above O along y (px). d = shaft diameter (px).
+ */
+export function schippers(ctx) {
+  const { head, ssf, acr, shaftD } = ctx.L;
+  if (!head || !ssf || !acr || !shaftD) return null;
+  const f = medLat(ssf, ctx);
+  const x = unit(sub(f.b, f.a));
+  let y = perp(x);
+  if (y.y > 0) y = mul(y, -1);
+  const O = add(f.a, mul(x, dot(sub(acr, f.a), x)));
+  const c = C(head);
+  const OX = dot(sub(O, c), x) + head.r;
+  const OY = dot(sub(c, O), y) + head.r;
+  const d = dist(shaftD.a, shaftD.b);
+  return d > 0 ? { O, x, y, OX, OY, d, Xp: add(O, mul(x, -OX)), Yp: add(O, mul(y, OY)) } : null;
+}
+
 
 /** Humeral axis pointing distal: shaft axis if the canal lines exist, else the stem axis, else image vertical. */
 export function humeralAxis(ctx) {
@@ -60,6 +82,9 @@ export default {
     { id: 'acu', kind: 'point', label: 'Acromion undersurface', group: 'Scapula', help: HELP.acu },
     { id: 'sgt', kind: 'point', label: 'Superior glenoid rim', group: 'Scapula', help: HELP.sgt },
     { id: 'igr', kind: 'point', label: 'Inferior glenoid rim', group: 'Scapula', help: HELP.igr },
+    { id: 'acr', kind: 'point', label: 'Lateral acromion', group: 'Scapula', help: HELP.acr, optional: true },
+    { id: 'ssf', kind: 'line', label: 'Supraspinatus fossa floor', group: 'Scapula', help: HELP.ssf, optional: true },
+    { id: 'shaftD', kind: 'line', label: 'Shaft diameter at the calcar', group: 'Native anatomy', optional: true, help: 'Outer diameter of the humeral shaft, lateral cortex to medial cortex, at the inflexion point of the calcar (where the medial curve of the metaphysis straightens into the shaft). The ruler for Schippers\' medialisation and upward migration.' },
     { id: 'canalM', kind: 'line', label: 'Canal width — metaphysis', group: 'Stem fit', help: HELP.canalM, optional: true },
     { id: 'stemM', kind: 'line', label: 'Stem width — metaphysis', group: 'Stem fit', help: HELP.stemM, optional: true, auto: true },
     { id: 'canalD', kind: 'line', label: 'Canal width — near tip', group: 'Stem fit', help: HELP.canalD, optional: true },
@@ -183,6 +208,37 @@ export default {
     },
 
     {
+      id: 'schOX', label: 'Head medial edge from acromial line (OX / d)', unit: '%', group: G_SCH,
+      needs: ['head', 'ssf', 'acr', 'shaftD'],
+      compute: (ctx) => { const k = schippers(ctx); return k ? (k.OX / k.d) * 100 : NaN; },
+      format: (v, ctx) => { const k = schippers(ctx); return `${v.toFixed(0)}% of shaft diameter${k && ctx.mm > 0 ? ` (${(k.OX * ctx.mm).toFixed(1)} mm)` : ''}`; },
+      gauge: { min: 0, max: 200 }, evidence: 'descriptive', refs: ['schippers2026'],
+      what: 'Schippers\' medialisation measure: in a frame made of the supraspinatus fossa line (x) and its perpendicular through the lateral acromion (y, meeting at O), the distance OX from O to the most medial edge of the prosthetic head, divided by the shaft diameter d. An increase between films is medialisation — glenoid erosion.',
+      caveat: 'Meaningful only as a change between true AP films in neutral rotation: the single value depends on the patient\'s anatomy. Interobserver ICC 0.96. Open the earlier film to compare.',
+      bands: [{ status: 'info', tag: '', say: 'Baseline for comparison. In 64 pyrocarbon heads at a mean 31 months, OX/d rose by 18% (SD 17%) — 0.57% a month; 39% showed almost none, 30% medialised by 1–2% a month.' }],
+      draw: (ctx) => {
+        const k = schippers(ctx);
+        if (!k) return [];
+        return [shape.ray(ctx.L.ssf.a, ctx.L.ssf.b, { dash: true }), shape.line(add(k.O, mul(k.y, -k.d)), add(k.O, mul(k.y, 2 * k.d)), { dash: true }), shape.dim(k.O, k.Xp), shape.line(ctx.L.shaftD.a, ctx.L.shaftD.b)];
+      },
+    },
+    {
+      id: 'schOY', label: 'Head top above fossa line (OY / d)', unit: '%', group: G_SCH,
+      needs: ['head', 'ssf', 'acr', 'shaftD'],
+      compute: (ctx) => { const k = schippers(ctx); return k ? (k.OY / k.d) * 100 : NaN; },
+      format: (v, ctx) => { const k = schippers(ctx); return `${v.toFixed(0)}% of shaft diameter${k && ctx.mm > 0 ? ` (${(k.OY * ctx.mm).toFixed(1)} mm)` : ''}`; },
+      gauge: { min: -50, max: 100 }, evidence: 'descriptive', refs: ['schippers2026'],
+      what: 'Schippers\' upward-migration measure: the distance OY, along the perpendicular through the lateral acromion, from the supraspinatus fossa line up to the top of the prosthetic head, divided by the shaft diameter. An increase between films is upward migration.',
+      caveat: 'As for OX: a baseline for comparison between films, not a graded value. Interobserver ICC 0.88.',
+      bands: [{ status: 'info', tag: '', say: 'Baseline for comparison. In the same series OY/d rose by 13% (SD 14%) — 0.44% a month; 44% showed almost no upward migration.' }],
+      draw: (ctx) => {
+        const k = schippers(ctx);
+        if (!k) return [];
+        return [shape.ray(ctx.L.ssf.a, ctx.L.ssf.b, { dash: true }), shape.line(add(k.O, mul(k.y, -k.d)), add(k.O, mul(k.y, 2 * k.d)), { dash: true }), shape.dim(k.O, k.Yp), shape.line(ctx.L.shaftD.a, ctx.L.shaftD.b)];
+      },
+    },
+
+    {
       id: 'stemAlign', label: 'Stem alignment', unit: '°', group: G_HUM,
       needs: ['stem', 'canalM', 'canalD'],
       compute: (ctx) => varusAngle(ctx.L.stem, shaftAxis(ctx.L.canalM, ctx.L.canalD), ctx),
@@ -222,6 +278,7 @@ export default {
         { status: 'borderline', tag: '≥ 0.7', say: 'At or above 0.7 — a risk factor for proximal stress shielding with uncemented stems.' },
       ],
     },
+    ...postureMetrics(['stem']),
   ],
 
   findings: [

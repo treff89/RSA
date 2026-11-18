@@ -82,7 +82,7 @@
         <div id="items" class="items" role="tablist" aria-label="Images in this study"></div>
         <span class="spacer"></span>
         <div id="tools-xray" class="tools">
-          <label class="tool-field" id="view-field">View <select id="view"><option value="ap">AP (Grashey)</option><option value="axillary">Axillary</option></select></label>
+          <label class="tool-field" id="view-field">View <select id="view"><option value="ap">AP (Grashey)</option><option value="axillary">Axillary</option><option value="y">Scapular Y</option></select></label>
           <button class="tbtn" id="btn-flip" title="Which side of the picture the humerus is on. Signs of tilt, varus and offsets depend on it.">Humerus: left</button>
           <button class="tbtn" id="btn-invert" title="Invert black and white. Bone and metal must be bright for automatic detection.">Invert</button>
           <button class="tbtn" id="btn-lines" title="Show or hide the measurement lines">Lines</button>
@@ -123,6 +123,7 @@
         <button role="tab" data-tab="measure">Measurements</button>
         <button role="tab" data-tab="muscle" hidden>Muscles</button>
         <button role="tab" data-tab="decision" hidden>Implant choice</button>
+        <button role="tab" data-tab="compare" hidden>Compare</button>
         <button role="tab" data-tab="appraisal">Appraisal</button>
       </div>
 
@@ -148,6 +149,10 @@
       <div class="card tabpane" id="tab-decision" hidden>
         <div class="card-head"><h2>Anatomic or reverse?</h2></div>
         <div id="decision"></div>
+      </div>
+      <div class="card tabpane" id="tab-compare" hidden>
+        <div class="card-head"><h2>Compare with another film</h2></div>
+        <div id="compare"></div>
       </div>
       <div class="card tabpane" id="tab-appraisal" hidden>
         <div class="card-head"><h2>Appraisal</h2></div>

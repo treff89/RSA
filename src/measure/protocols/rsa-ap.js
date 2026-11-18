@@ -2,13 +2,14 @@
 import { shape } from '../core.js';
 import { angleAt, signedDistToLine, projectOnLine } from '../geom.js';
 import {
-  C, HELP, STEM_FINDINGS, UP, lateral, lateralNormal, supInf, tiltVsFossa, shaftAxis, varusAngle, proxDist,
+  C, HELP, STEM_FINDINGS, UP, lateral, lateralNormal, supInf, tiltVsFossa, shaftAxis, varusAngle, proxDist, postureMetrics,
   sub, add, mul, dot, unit, mid, dist,
 } from './xray-common.js';
 
 const G_LAT = 'Lateralisation & distalisation';
 const G_GLEN = 'Glenoid component';
 const G_HUM = 'Humeral component';
+const G_DELT = 'Deltoid';
 
 /** Inferior direction along the glenosphere's back face. */
 function faceInferior(ctx) {
@@ -52,6 +53,7 @@ export default {
     { id: 'ssf', kind: 'line', label: 'Supraspinatus fossa floor', group: 'Scapula', help: HELP.ssf },
     { id: 'gts', kind: 'point', label: 'Greater tuberosity — top', group: 'Humerus', help: HELP.gts },
     { id: 'gtl', kind: 'point', label: 'Greater tuberosity — lateral', group: 'Humerus', help: HELP.gtl },
+    { id: 'dtu', kind: 'point', label: 'Deltoid tuberosity — midpoint', group: 'Humerus', optional: true, help: HELP.dtu },
     { id: 'canalM', kind: 'line', label: 'Canal width — metaphysis', group: 'Stem fit', help: HELP.canalM, optional: true },
     { id: 'stemM', kind: 'line', label: 'Stem width — metaphysis', group: 'Stem fit', help: HELP.stemM, optional: true, auto: true },
     { id: 'canalD', kind: 'line', label: 'Canal width — near tip', group: 'Stem fit', help: HELP.canalD, optional: true },
@@ -157,6 +159,35 @@ export default {
     },
 
     {
+      id: 'dma', label: 'Deltoid moment arm (centre of rotation → tuberosity)', unit: 'mm', group: G_DELT, scale: true,
+      needs: ['gs', 'gtl'],
+      compute: (ctx) => dist(C(ctx.L.gs), ctx.L.gtl) * ctx.mm,
+      gauge: { min: 30, max: 70 }, evidence: 'descriptive', refs: ['rhee2025', 'werthel2019'],
+      what: 'Straight distance from the centre of rotation (glenosphere centre) to the most lateral point of the greater tuberosity, as defined by Rhee et al. — the lever through which the middle deltoid wraps over the tuberosity.',
+      caveat: 'Descriptive: post-operative means were 52–54 mm in a series of reverse arthroplasties, with no cut-off tied to outcome. The classic biomechanical moment arm (perpendicular from the centre of rotation to the deltoid line of action) is not the same quantity. Changes with arm rotation and abduction.',
+      bands: [
+        { upTo: 45, status: 'info', tag: 'Short', say: 'Shorter than the 52–54 mm averages reported after reverse arthroplasty: a medial humerus or a small glenosphere, with less deltoid wrap.' },
+        { upTo: 60, status: 'info', tag: 'Typical', say: 'Within the spread reported after reverse arthroplasty (means 52–54 mm, SD about 4 mm).' },
+        { status: 'info', tag: 'Long', say: 'Longer than usual after reverse arthroplasty: a lateralised humerus or glenosphere.' },
+      ],
+      draw: (ctx) => [shape.dim(C(ctx.L.gs), ctx.L.gtl)],
+    },
+    {
+      id: 'dwa', label: 'Deltoid wrapping angle', unit: '°', group: G_DELT,
+      needs: ['acr', 'gtl', 'dtu'],
+      compute: ({ L }) => angleAt(L.acr, L.gtl, L.dtu),
+      gauge: { min: 130, max: 180 }, evidence: 'descriptive', refs: ['rhee2025'],
+      what: 'Angle at the most lateral point of the greater tuberosity between the line to the lateral tip of the acromion and the line to the midpoint of the deltoid tuberosity: the path of the middle deltoid as it wraps around the tuberosity. 180° = a straight deltoid with no wrap; the smaller the angle, the more wrap.',
+      caveat: 'Descriptive: post-operative means 159–161° (SD 7–10°) in one series. The deltoid tuberosity must be on the film, which needs a longer cassette than many shoulder views.',
+      bands: [
+        { upTo: 150, status: 'info', tag: 'Marked wrap', say: 'More wrap than the averages reported after reverse arthroplasty (159–161°): the tuberosity stands well lateral to the line of the deltoid.' },
+        { upTo: 170, status: 'info', tag: 'Typical', say: 'Within the spread reported after reverse arthroplasty (means 159–161°).' },
+        { status: 'info', tag: 'Little wrap', say: 'The deltoid runs almost straight past the tuberosity: little wrap, as with a medialised humerus.' },
+      ],
+      draw: ({ L }) => [shape.line(L.gtl, L.acr), shape.line(L.gtl, L.dtu), shape.arc(L.gtl, L.acr, L.dtu)],
+    },
+
+    {
       id: 'tilt', label: 'Glenosphere inclination', unit: '°', group: G_GLEN,
       needs: ['face', 'ssf'],
       compute: (ctx) => tiltVsFossa(ctx.L.face, ctx.L.ssf, ctx),
@@ -241,6 +272,7 @@ export default {
     },
     fillingRatio('frM', 'Filling ratio — metaphysis', 'stemM', 'canalM'),
     fillingRatio('frD', 'Filling ratio — near tip', 'stemD', 'canalD'),
+    ...postureMetrics(['stem']),
   ],
 
   findings: [
