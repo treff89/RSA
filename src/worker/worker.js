@@ -82,11 +82,11 @@ async function onScan(files) {
   post({ type: 'scanned', result });
 }
 
-async function onXray(id) {
+async function onXray(id, implant) {
   progress('load', 0.2, 'Decoding image…');
   const image = id.startsWith('r') ? await decodeRaster(await intake.readRaster(id)) : await intake.loadRadiograph(id);
   progress('load', 0.6, 'Looking for the implant…');
-  const det = detectXray(image);
+  const det = detectXray(image, { implant });
   post({ type: 'xray', id, image, det }, [image.data.buffer]);
 }
 
@@ -116,7 +116,7 @@ function onSample(modality, kind) {
     meta: { modality: 'DX', bodyPart: 'SHOULDER', laterality: 'R', viewPosition: 'AP', description: 'Synthetic phantom', burnedInRisk: false, photometric: 'MONOCHROME2', transferSyntax: '' },
     warnings: [],
   };
-  const det = detectXray(image);
+  const det = detectXray(image, { implant: { reverse: 'reverse', hemi: 'pyc', native: 'native' }[kind] });
   post({ type: 'xray', id: `sample-${kind}`, image, det, sample: true, truth: JSON.parse(JSON.stringify(ph.truth, (k, v) => (ArrayBuffer.isView(v) ? undefined : v))) }, [image.data.buffer]);
 }
 
@@ -125,10 +125,10 @@ if (typeof self !== 'undefined' && typeof self.postMessage === 'function' && typ
     const m = e.data;
     try {
       if (m.type === 'scan') await onScan(m.files);
-      else if (m.type === 'xray') await onXray(m.id);
+      else if (m.type === 'xray') await onXray(m.id, m.implant);
       else if (m.type === 'ct') await onCt(m.seriesId);
       else if (m.type === 'sample') onSample(m.modality, m.kind);
-      else if (m.type === 'detect') post({ type: 'detected', reqId: m.reqId, det: detectXray(m.image, { lateralSign: m.lateralSign }) });
+      else if (m.type === 'detect') post({ type: 'detected', reqId: m.reqId, det: detectXray(m.image, { lateralSign: m.lateralSign, implant: m.implant }) });
       else if (m.type === 'reset') intake.reset();
     } catch (err) {
       if (m.type === 'scan' && err && err.code === 'NOTHING_USABLE') post({ type: 'error', scope: 'scan', message: err.message, result: err.result || null });

@@ -14,7 +14,10 @@ export function detectXray(image, opts = {}) {
   const strip = (o) => JSON.parse(JSON.stringify(o, (k, v) => (k === 'mask' || ArrayBuffer.isView(v) ? undefined : v)));
   try {
     const mmPerPx = image.pixelSpacing && image.pixelSpacing.mm > 0 ? image.pixelSpacing.mm : undefined;
-    const a = autoLandmarks(img, { mmPerPx, headFinder: (im) => xdet.detectHead(im) });
+    // opts.implant is the study type the reader chose: 'reverse', 'pyc' (any humeral head replacement) or 'native'
+    const implant = opts.implant === 'reverse' ? 'reverse' : opts.implant === 'native' ? 'native' : opts.implant ? 'hemi' : undefined;
+    out.implant = opts.implant || null;
+    const a = implant === 'native' ? null : autoLandmarks(img, { mmPerPx, implant, axisMode: opts.axisMode, headFinder: (im) => xdet.detectHead(im) });
     if (a) return strip({ ...out, ...a });
     // no implant: native shoulder
     const head = xdet.detectHead(img);

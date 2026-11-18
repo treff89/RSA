@@ -14,6 +14,8 @@
 // Image convention: { width, height, data }, higher = more attenuating. Coordinates returned are full-resolution
 // pixels (x right, y down).
 import { downsample, gaussianBlur, connectedComponents, distanceTransformSq, percentiles, fitCircle, fitLine, median } from './image.js';
+import { frames as learnedFrames, placeLearned } from './learned.js';
+import MODEL from './model.json' with { type: 'json' };
 
 const WORK = 640;                    // working size of the shorter image side
 const BONY = 0.45, PRIOR = 0.3;      // confidence of a snapped / proportion-only bony landmark
@@ -534,10 +536,26 @@ function unionMasks(P, A, B, log = () => {}) {
 // ───────────────────────────── 2. stem ─────────────────────────────
 /** Trace the stem from the lowest metal point upward. Returns axis (unit, pointing proximal), tip, proximal end, widths. */
 function traceStem(P, M) {
-  const { w, h } = P;
+  const { w, h, n } = P;
+  // The stem is traced on the most elongated body (in a reverse the glenosphere with its screws can be the largest),
+  // after a small opening that removes thin bright strips (cortex, wires) the mask may have run along.
+  const body = stemBody(P, M);
+  if (!body) return null;
+  const k = Math.max(2, Math.round(0.005 * Math.min(w, h)));
+  const dIn = distanceTransformSq(body, w, h, 0);
+  const core = new Uint8Array(n);
+  for (let i = 0; i < n; i++) core[i] = body[i] && dIn[i] >= k * k ? 1 : 0;
+  const dCore = distanceTransformSq(core, w, h, 1);
+  const opened = new Uint8Array(n);
+  for (let i = 0; i < n; i++) opened[i] = body[i] && dCore[i] <= k * k ? 1 : 0;
+  // keep the largest piece of the opened body
+  const occ = connectedComponents(opened, w, h, 8);
+  let bl = 0, ba = 0;
+  for (let q = 1; q <= occ.count; q++) if (occ.stats[q].area > ba) { ba = occ.stats[q].area; bl = q; }
   const xs = [], ys = [];
   let ymax = -1, ymin = h, tx = 0;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (M.labels[y * w + x] === M.main && M.mask[y * w + x]) { xs.push(x); ys.push(y); if (y > ymax) { ymax = y; tx = x; } if (y < ymin) ymin = y; }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (bl && occ.labels[y * w + x] === bl) { xs.push(x); ys.push(y); if (y > ymax) { ymax = y; tx = x; } if (y < ymin) ymin = y; }
+  M.stemMask = (i) => bl && occ.labels[i] === bl;
   const H = ymax - ymin;
   if (xs.length < 60 || H < 12) return null;
   // initial direction: principal axis of the lowest quarter
@@ -595,6 +613,71 @@ function traceStem(P, M) {
   const prox = [tip[0] + d[0] * len, tip[1] + d[1] * len];
   void tx; void s0;
   return { d, o, tip, prox, len, wd, prof, n: [-d[1], d[0]] };
+}
+
+/**
+ * Text boxes, panel letters and scale-bar labels in published figures are flat, white and crisp like metal, but they
+ * are near-perfect upright rectangles, which no implant is. Remove such bodies from the mask.
+ */
+function dropLabelBoxes(P, M, log = () => {}) {
+  const { w, h, n } = P;
+  const cc = connectedComponents(M.mask, w, h, 8);
+  let removed = 0;
+  for (let k = 1; k <= cc.count; k++) {
+    const st = cc.stats[k];
+    const bw = st.maxX - st.minX + 1, bh = st.maxY - st.minY + 1;
+    // holes (the text inside a label) count as filled: flood the box's non-body pixels from its border
+    const outside = new Uint8Array(bw * bh), stack = [];
+    const inBody = (x, y) => cc.labels[(st.minY + y) * w + st.minX + x] === k;
+    for (let x = 0; x < bw; x++) for (const y of [0, bh - 1]) if (!inBody(x, y) && !outside[y * bw + x]) { outside[y * bw + x] = 1; stack.push(y * bw + x); }
+    for (let y = 0; y < bh; y++) for (const x of [0, bw - 1]) if (!inBody(x, y) && !outside[y * bw + x]) { outside[y * bw + x] = 1; stack.push(y * bw + x); }
+    while (stack.length) {
+      const q = stack.pop(), x = q % bw, y = (q - x) / bw;
+      for (const [xx, yy] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+        if (xx < 0 || yy < 0 || xx >= bw || yy >= bh) continue;
+        const j = yy * bw + xx;
+        if (!outside[j] && !inBody(xx, yy)) { outside[j] = 1; stack.push(j); }
+      }
+    }
+    let ext = 0;
+    for (let q = 0; q < bw * bh; q++) ext += outside[q];
+    const fillBox = (bw * bh - ext) / (bw * bh);
+    if (fillBox < 0.9 || st.area < 30) continue;
+    for (let i = 0; i < n; i++) if (cc.labels[i] === k) { M.mask[i] = 0; M.labels[i] = 0; }
+    M.area -= st.area; removed++;
+    log(`label box removed at (${st.cx.toFixed(0)},${st.cy.toFixed(0)}), ${bw}×${bh}, fills ${(fillBox * 100).toFixed(0)}% of its box`);
+  }
+  if (removed) {
+    // the largest remaining body becomes the main one
+    const areas = new Map();
+    for (let i = 0; i < n; i++) if (M.mask[i]) areas.set(M.labels[i], (areas.get(M.labels[i]) || 0) + 1);
+    let bl = 0, ba = 0;
+    for (const [l, a] of areas) if (a > ba) { ba = a; bl = l; }
+    M.main = bl;
+  }
+}
+
+/** Mask of the metal body most likely to hold the stem: the most elongated of the larger bodies. */
+function stemBody(P, M) {
+  const { w, h, n } = P;
+  const areas = new Map();
+  for (let i = 0; i < n; i++) if (M.mask[i] && M.labels[i]) areas.set(M.labels[i], (areas.get(M.labels[i]) || 0) + 1);
+  if (!areas.size) return null;
+  const big = Math.max(...areas.values());
+  let best = 0, bv = -1;
+  for (const [l, a] of areas) {
+    if (a < 0.2 * big) continue;
+    let sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0;
+    for (let i = 0; i < n; i++) if (M.labels[i] === l && M.mask[i]) { const x = i % w, y = (i - x) / w; sx += x; sy += y; sxx += x * x; sxy += x * y; syy += y * y; }
+    const cx = sx / a, cy = sy / a, mxx = sxx / a - cx * cx, mxy = sxy / a - cx * cy, myy = syy / a - cy * cy;
+    const tr = mxx + myy, det = mxx * myy - mxy * mxy, disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+    const l1 = tr / 2 + disc, l2 = Math.max(1e-6, tr / 2 - disc);
+    const v = Math.sqrt(l1) * Math.sqrt(l1 / l2);        // long and thin
+    if (v > bv) { bv = v; best = l; }
+  }
+  const body = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (M.labels[i] === best && M.mask[i]) body[i] = 1;
+  return body;
 }
 
 /** Metal edges across the stem at distance s from the tip (working px), by walking out from the axis. */
@@ -680,8 +763,13 @@ function findCircle(P, M, stem, opts, log = () => {}) {
   if (B.n < 40) return null;
   const mm = opts.mmPerPx ? opts.mmPerPx * P.f : 0;                       // mm per working px
   // Without a pixel size the stem is the ruler: a glenosphere or head radius is 1.1–3.4 distal stem widths.
-  let rmin = mm ? 15 / mm : stem ? 1.25 * stem.wd : 0.03 * Math.min(P.w, P.h);
-  let rmax = mm ? 29 / mm : stem ? 3.4 * stem.wd : 0.2 * Math.min(P.w, P.h);
+  // Without a pixel size the stem is the ruler (a glenosphere or head radius is 1.1–3.4 distal stem widths), but the
+  // distal width is over-read when the stem is short or cut off by the film, so the lower limit is generous and
+  // bounded by the image.
+  const short = Math.min(P.w, P.h);
+  let rmin = mm ? 15 / mm : stem ? Math.min(0.75 * stem.wd, 0.06 * short) : 0.03 * short;
+  let rmax = mm ? 29 / mm : stem ? Math.min(3.4 * stem.wd, 0.35 * short) : 0.2 * short;
+  if (rmax < 2 * rmin) rmax = Math.min(0.35 * short, 2.5 * rmin);
   rmin = Math.max(5, rmin);
   const rng = mulberry32(977);
   const tol = Math.max(1.2, 0.035 * rmin);
@@ -716,6 +804,7 @@ function findCircle(P, M, stem, opts, log = () => {}) {
   if (!cands.length) return null;
   cands.sort((p, q) => q.deg - p.deg);
   let best = null;
+  const all = [];
   for (const c of cands.slice(0, 40)) {
     // least-squares polish on the supporting outline points, twice
     let cur = c;
@@ -734,13 +823,24 @@ function findCircle(P, M, stem, opts, log = () => {}) {
     // a long unbroken convex arc of a metal-filled disc — and not a small one: tray corners and collars are
     // round too, but a dome or head is at least about 1.6 distal stem widths in radius
     const score = run * fl * (stem ? Math.min(1, cur.r / (1.6 * stem.wd)) : 1);
-    if (!best || score > best.q) best = { cx: cur.cx, cy: cur.cy, r: cur.r, deg: cov.deg, run, fill: fl, arc, q: score };
+    const cand = { cx: cur.cx, cy: cur.cy, r: cur.r, deg: cov.deg, run, fill: fl, arc, q: score };
+    all.push(cand);
+    if (!best || score > best.q) best = cand;
+  }
+  // distinct alternatives (centres more than half a radius apart), best first — the caller chooses among them
+  all.sort((a, b) => b.q - a.q);
+  const alts = [];
+  for (const c of all) {
+    if (c.run < 60) continue;
+    if (alts.some((a) => Math.hypot(a.cx - c.cx, a.cy - c.cy) < 0.5 * Math.min(a.r, c.r))) continue;
+    c.score = Math.max(0.3, Math.min(0.95, c.run / 190)) * Math.min(1, c.fill / 0.9);
+    c.B = B;
+    alts.push(c);
+    if (alts.length >= 6) break;
   }
   log(`best circle ${best ? `(${best.cx.toFixed(0)},${best.cy.toFixed(0)}) r ${best.r.toFixed(1)} run ${best.run} cov ${best.deg} fill ${best.fill.toFixed(2)}` : 'none'}`);
-  if (!best || best.run < 60) return null;
-  best.B = B;
-  best.score = Math.max(0.3, Math.min(0.95, best.run / 190)) * Math.min(1, best.fill / 0.9);
-  return best;
+  if (!alts.length) return null;
+  return { ...alts[0], alts };
 }
 
 /**
@@ -978,10 +1078,33 @@ export function autoLandmarks(img, opts = {}) {
   M = M || metalMask(P, log) || flatMetalMask(P, log);
   if (!M) { log('no metal'); return null; }
   addNear(P, M);
+  dropLabelBoxes(P, M, log);
+  if (!M.area) { log('only label boxes'); return null; }
   const stem = traceStem(P, M);
   if (opts.debug) Object.assign(opts.debug, { P, M, stem });
   log(`metal T ${M.T} fraction ${M.fraction.toFixed(3)} stability ${M.stability.toFixed(3)}; stem ${stem ? `wd ${stem.wd.toFixed(1)} len ${stem.len}` : 'none'}`);
   let circle = findCircle(P, M, stem, opts, log);
+  if (circle && stem && circle.alts.length) {
+    // Choose among the candidate circles with anatomy. Nothing valid sits along the stem (the rounded distal tip
+    // is the usual impostor). A prosthetic head rides on the stem's proximal end, centred on its axis; a
+    // glenosphere lies beyond it, about a radius off the axis, with baseplate and screws attached on its far side.
+    let pick = null, pv = -1;
+    for (const c of circle.alts) {
+      const along = (c.cx - stem.tip[0]) * stem.d[0] + (c.cy - stem.tip[1]) * stem.d[1];
+      const off = Math.abs((c.cx - stem.tip[0]) * stem.n[0] + (c.cy - stem.tip[1]) * stem.n[1]);
+      if (along < 0.5 * stem.len) { log(`  circle (${c.cx.toFixed(0)},${c.cy.toFixed(0)}) r ${c.r.toFixed(0)} lies along the stem (${(along / stem.len).toFixed(2)} of its length): rejected`); continue; }
+      if (off > 3 * c.r) { log(`  circle (${c.cx.toFixed(0)},${c.cy.toFixed(0)}) r ${c.r.toFixed(0)} is ${(off / c.r).toFixed(1)} R off the stem axis: rejected`); continue; }
+      // a head riding on the stem is much larger than the stem is wide; a small round on the axis is a collar or taper
+      if (off <= 0.8 * c.r && c.r < 1.3 * stem.wd) { log(`  circle (${c.cx.toFixed(0)},${c.cy.toFixed(0)}) r ${c.r.toFixed(0)} on the axis but smaller than a head: rejected`); continue; }
+      let v = c.q * (along >= 0.75 * stem.len ? 1 : 0.6) * (off <= 2.6 * c.r ? 1 : 0.4);
+      // the reader has told us what is implanted: a glenosphere lies beyond the stem and off its axis, a head on it
+      if (opts.implant === 'reverse') v *= (along >= 0.9 * stem.len ? 1 : 0.3) * (off >= 0.5 * c.r ? 1 : 0.3);
+      if (opts.implant === 'hemi') v *= off <= 0.9 * c.r ? 1 : 0.2;
+      log(`  circle (${c.cx.toFixed(0)},${c.cy.toFixed(0)}) r ${c.r.toFixed(0)}: ${(along / stem.len).toFixed(2)} up the stem, ${(off / c.r).toFixed(2)} R off its axis, value ${v.toFixed(1)}`);
+      if (v > pv) { pv = v; pick = c; }
+    }
+    circle = pick ? { ...pick, alts: circle.alts } : null;
+  }
   if (!circle && stem && opts.headFinder) {
     // A head less dense than the stem (some pyrocarbon heads) is not part of the metal mask. Fall back to a
     // gradient-voted circle and accept it if it sits at the proximal end of the stem.
@@ -1011,21 +1134,24 @@ export function autoLandmarks(img, opts = {}) {
   }
   let domeLabel = 0, dl = 0;
   for (const [l, c] of cnt) if (c > dl) { dl = c; domeLabel = l; }
-  let far = 0, fx = 0, fy = 0;
-  for (let y = Math.max(0, Math.floor(C[1] - 3 * R)); y <= Math.min(h - 1, Math.ceil(C[1] + 3 * R)); y++) {
+  let far = 0, fx = 0, fy = 0, fxx = 0, fxy = 0, fyy = 0;
+  // a glenosphere lies beyond the proximal end of the stem; for a circle below that, "beyond" would point down the
+  // stem and count the stem itself
+  const alongC = stem ? (C[0] - stem.tip[0]) * stem.d[0] + (C[1] - stem.tip[1]) * stem.d[1] : Infinity;
+  if (alongC >= 0.95 * (stem ? stem.len : 0)) for (let y = Math.max(0, Math.floor(C[1] - 3 * R)); y <= Math.min(h - 1, Math.ceil(C[1] + 3 * R)); y++) {
     for (let x = Math.max(0, Math.floor(C[0] - 3 * R)); x <= Math.min(w - 1, Math.ceil(C[0] + 3 * R)); x++) {
       if (!M.mask[y * w + x] || (domeLabel && M.labels[y * w + x] !== domeLabel)) continue;
       const dx = x - C[0], dy = y - C[1], dd = Math.hypot(dx, dy);
       if (dd < 1.12 * R || dd > 3 * R) continue;
       if ((dx * ex + dy * ey) < 0.2 * dd) continue;                    // within ~78° of "away from the stem"
-      far++; fx += x; fy += y;
+      far++; fx += x; fy += y; fxx += x * x; fxy += x * y; fyy += y * y;
     }
   }
   // …or the circle sits well off the stem axis: a prosthetic head rides on its stem (centre within about half a
   // radius of the axis), a glenosphere is a full radius medial to it
   const axisOff = stem ? Math.abs((C[0] - stem.tip[0]) * stem.n[0] + (C[1] - stem.tip[1]) * stem.n[1]) : 0;
   log(`far-side metal ${(far / (Math.PI * R * R)).toFixed(3)} of disc; centre ${(axisOff / R).toFixed(2)} R off the stem axis`);
-  const isReverse = !circle.dim && (far > 0.05 * Math.PI * R * R || axisOff > 0.8 * R);
+  const isReverse = opts.implant ? opts.implant === 'reverse' : !circle.dim && (far > 0.05 * Math.PI * R * R || axisOff > 0.8 * R);
   const toFull = (p) => [(p[0] + 0.5) * f - 0.5, (p[1] + 0.5) * f - 0.5];
   const scaleOut = (est) => {
     const o = {};
@@ -1035,14 +1161,45 @@ export function autoLandmarks(img, opts = {}) {
   const stemOut = stem ? { a: toFull(stem.prox), b: toFull(stem.tip) } : null;
   if (isReverse) {
     // axis: from the baseplate/screw metal through the centre, pointing out of the dome (lateral)
-    let ax = C[0] - fx / far, ay = C[1] - fy / far;
+    // axis: from the baseplate/screw metal through the centre; without any (reader said reverse, none attached),
+    // assume the dome faces the stem's proximal end
+    let ax = far ? C[0] - fx / far : (stem ? stem.prox[0] - C[0] : 1), ay = far ? C[1] - fy / far : (stem ? stem.prox[1] - C[1] : 0);
     const al = Math.hypot(ax, ay) || 1; ax /= al; ay /= al;
     // Refine the direction from the implant's own straight edges: the flat back of the dome where it shows beside
     // the baseplate, and the baseplate's medial edge, are both parallel to the face. (The centroid of the screws
     // alone is off by 15° or more when the screws are not symmetric.)
     const fl = faceLine(circle.B || boundary(P, M), C, R, [ax, ay], domeLabel ? (x, y) => M.labels[y * w + x] === domeLabel : null);
     log(`axis from screws (${ax.toFixed(2)},${ay.toFixed(2)}); straight back edge ${fl ? `${fl.n} px, normal (${fl.nx.toFixed(2)},${fl.ny.toFixed(2)}), ${fl.d.toFixed(1)} px medial of centre` : 'not found'}`);
-    if (fl) { ax = fl.nx; ay = fl.ny; }
+    // Principal direction of the screw/peg metal: screws and the central peg run roughly parallel to the axis, so
+    // their main direction is robust where their centroid is not (asymmetric screw placement)
+    let pca = null;
+    if (far > 30) {
+      const mx = fx / far, my = fy / far, cxx = fxx / far - mx * mx, cxy = fxy / far - mx * my, cyy = fyy / far - my * my;
+      const tr = cxx + cyy, det = cxx * cyy - cxy * cxy, disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+      const l1 = tr / 2 + disc, l2 = tr / 2 - disc;
+      let vx = Math.abs(cxy) > 1e-9 ? l1 - cyy : (cxx >= cyy ? 1 : 0), vy = Math.abs(cxy) > 1e-9 ? cxy : (cxx >= cyy ? 0 : 1);
+      const vl = Math.hypot(vx, vy) || 1; vx /= vl; vy /= vl;
+      if (vx * ax + vy * ay < 0) { vx = -vx; vy = -vy; }
+      // only when the metal is clearly elongated and the direction is within 40° of the centroid estimate
+      if (l1 > 2.5 * Math.max(1e-9, l2) && vx * ax + vy * ay > 0.77) pca = [vx, vy];
+    }
+    // Order of preference measured on annotated films (median face-angle error): the dome's straight back edge 5.5°,
+    // screw-centroid direction 12°, principal screw direction 19°.
+    const mode = opts.axisMode || 'face';
+    let how = 'screw centroid';
+    if (mode === 'face' && fl) { ax = fl.nx; ay = fl.ny; how = 'back edge'; }
+    else if (mode === 'pca' && pca) { ax = pca[0]; ay = pca[1]; how = 'screw direction'; }
+    // On an upright AP film the glenoid faces laterally: the axis lies within about 40° of horizontal. An estimate
+    // outside that is a misreading of the implant; take the first plausible alternative, else horizontal.
+    const plausible = (v) => v && Math.abs(v[1]) <= Math.sin(40 * Math.PI / 180) * Math.hypot(v[0], v[1]);
+    if (!plausible([ax, ay])) {
+      const alts = [fl ? [fl.nx, fl.ny, 'back edge'] : null, pca ? [pca[0], pca[1], 'screw direction'] : null, far ? [C[0] - fx / far, C[1] - fy / far, 'screw centroid'] : null]
+        .filter((v) => v && plausible(v));
+      const L0 = stem ? Math.sign(stem.prox[0] - C[0]) || 1 : (ax >= 0 ? 1 : -1);
+      const pick = alts.find((v) => Math.sign(v[0]) === L0) || [L0, 0, 'horizontal (implant orientation not readable)'];
+      const l = Math.hypot(pick[0], pick[1]); ax = pick[0] / l; ay = pick[1] / l; how = pick[2];
+    }
+    log(`axis chosen (${ax.toFixed(2)},${ay.toFixed(2)}) by ${how}`);
     const L = ax >= 0 ? 1 : -1;
     // superior in-face direction
     let px = -ay, py = ax; if (py > 0) { px = -px; py = -py; }
@@ -1071,7 +1228,7 @@ export function autoLandmarks(img, opts = {}) {
         glenosphere: { cx: cf[0], cy: cf[1], r: R * f, score: circle.score, axis: [ax, ay], face: { a: toFull(g.face.a), b: toFull(g.face.b) }, arcDeg: circle.run, fill: circle.fill },
         stem: stemOut, side: L > 0 ? 'right-of-glenoid' : 'left-of-glenoid',
       },
-      head: null, stem: stemOut, estimates: { 'rsa-ap': scaleOut(est) },
+      head: null, stem: stemOut, estimates: { 'rsa-ap': withLearned(scaleOut(est), img, 'reverse', { centre: cf, r: R * f, face: { a: toFull(g.face.a), b: toFull(g.face.b) }, stem: stemOut }, L) },
     };
   }
   // hemiarthroplasty: the head faces medially, so lateral is the other way from where the head sits off the stem
@@ -1087,8 +1244,21 @@ export function autoLandmarks(img, opts = {}) {
     kind: 'hemi', confidence: circle.score, metalFraction: M.fraction,
     side: L > 0 ? 'right-of-glenoid' : 'left-of-glenoid',
     reverse: null, head: { cx: cf[0], cy: cf[1], r: R * f, score: circle.score, kind: 'implant', arcDeg: circle.run },
-    stem: stemOut, estimates: { 'pyc-ap': scaleOut(est) },
+    stem: stemOut, estimates: { 'pyc-ap': withLearned(scaleOut(est), img, 'hemi', { centre: cf, r: R * f, stem: stemOut }, L) },
   };
+}
+
+/**
+ * Replace proportion-based bony landmarks with the learned model's placement (src/detect/learned.js) where the
+ * model covers this implant type. Measured implant landmarks (stem and canal widths) are kept.
+ */
+function withLearned(est, img, kind, imp, L) {
+  const m = MODEL.types && MODEL.types[kind];
+  if (!m) return est;
+  const F = learnedFrames(imp, L);
+  if (!F) return est;
+  const g = { width: img.width, height: img.height, data: img.data };
+  return { ...est, ...placeLearned(g, F, m) };
 }
 
 /** Bony landmark estimates for a native shoulder, given the humeral head circle (full-resolution px). */

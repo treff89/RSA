@@ -40,36 +40,41 @@ weighted reading of anatomic versus reverse replacement.
 
 ## What is automatic, and what is not
 
-Detection is classical image analysis (no machine-learning model, nothing downloaded). On a radiograph **every
-landmark is placed automatically**; you then check and drag.
+You choose the study type (reverse, pyrocarbon/hemi, native) when you open the images; each radiograph is then
+analysed as that type. On a radiograph **every landmark is placed automatically**; you check and drag.
 
-* **Implant landmarks are measured** — the metal is segmented, the stem is traced from its tip (axis and widths),
-  and the glenosphere dome or prosthetic head is found as the best-supported convex arc of the metal outline, with
-  the glenosphere's back face taken from the implant's own straight edges. Reverse and hemiarthroplasty are told
-  apart automatically.
-* **Bony landmarks are estimated** — acromion, glenoid rim, tuberosity, fossa floor, canal cortices and the
-  best-fit-circle points are placed from anatomical proportions relative to the implant and snapped to the nearest
-  matching bone edge where one is found. They are drawn dashed, listed as "Estimated — check", and every
-  measurement resting on one is labelled **provisional** until you confirm it (one button confirms them all).
-* **CT** — metal segmentation; a sphere fitted to the glenosphere with its axis; the stem axis; the humeral head
-  (native or prosthetic) as a sphere. Bony CT landmarks are placed by you.
-* **Screenshots** from a viewer are accepted: coloured overlay text (names, dates, IDs) is blanked as the picture is
-  opened, and the view zooms to the shoulder.
-* **Gradings are yours** — notching, lucency, Hamada, Walch, erosion. The software does not pretend to grade them.
+* **Implant landmarks are measured.** Metal is found by two independent, validated methods combined: a threshold
+  search for the region whose outline lies on crisp edges, and a marker-controlled watershed on the gradient image
+  (which finds metal even where it is barely brighter than the tissue beside it, as on many processed and
+  published films). Figure margins are peeled off, coloured annotations and viewer text are painted out, and label
+  boxes are ignored. The stem is traced on the most elongated metal body; the glenosphere or head is the best
+  convex arc of the metal outline that is anatomically placed (beyond the stem for a glenosphere, on it for a head);
+  the glenosphere face comes from the implant's own straight back edge.
+* **Bony landmarks are learned.** Positions of the acromion, glenoid rim, tuberosity, fossa floor and best-fit-circle
+  points were learned from annotated radiographs, relative to the implant (`src/detect/model.json`, written by
+  `test/corpus/learn.mjs`). Each landmark uses whichever method scored best in leave-one-out testing: its learned
+  position, a search for its learned local appearance, or the extreme point of the bony outline nearby. They are
+  drawn dashed and listed as "Estimated — check"; measurements resting on them are **provisional** until confirmed.
+* **Correct the implant and the rest follows.** Dragging or re-placing the glenosphere, its face, the head or the
+  stem re-places every bony landmark that is still an estimate; anything you placed or confirmed stays where it is.
+* **CT**: the implant and humeral head are detected; bony CT landmarks are placed by you.
+* **Gradings are yours** — notching, lucency, Hamada, Walch, erosion.
 
 ### How well does it work? Candidly:
 
-* On **synthetic phantoms** with known geometry (the test suite): glenosphere centre within 0.1 mm, stem axis
-  within 0.5° on radiographs; glenosphere centre within 0.2 mm, axis within 1° and version/inclination within 0.5°
-  on CT.
-* On **real radiographs** the pipeline was developed against three clinical films (two reverse, one pyrocarbon
-  hemiarthroplasty; none is stored in this repository). On those three the implant type, glenosphere or head
-  circle, stem axis and all bony landmarks land on or within a few millimetres of the right structures. Three films
-  is a development set, not a validation: expect misses on other implant designs, unusual projections, heavy
-  overlap or poor exposure. A glenosphere whose outline is mostly hidden by the humeral cup is reported as a
-  low-confidence estimate.
-* The fossa-floor line and the glenoid rim behind a baseplate are placed from proportions only — they are the
-  landmarks most worth checking, and glenosphere inclination depends on the first.
+Measured on a development corpus of about 750 openly available radiographs (journal figures, a shoulder surgeon's
+teaching blog, an open dataset — kept out of this repository), 66 of them with landmarks annotated by hand:
+
+* **Glenosphere**: found on about two thirds of reverse films; when found, its centre is within 0.1 radius
+  (about 2 mm) of the annotated position and its face within 3° (median).
+* **Bony landmarks on reverse films** (leave-one-out, so each film was placed by a model that had not seen it;
+  errors as a fraction of the glenosphere radius, about 19 mm): superior glenoid tubercle 0.3, inferior rim 0.3,
+  acromion undersurface 0.3, acromion tip 0.4, top of the tuberosity 0.4, lateral tuberosity 0.6 — that is,
+  typically 5–12 mm. That is a useful head start, **not** a measurement: LSA and DSA from untouched automatic
+  landmarks still differ from the hand-placed values by a median of about 10–15°.
+* **Hemiarthroplasty / anatomic films**: the model was learned from only 8 annotated films; expect more correction.
+* Computing LSA and DSA from the annotated landmarks reproduces the values printed in the source articles to within
+  about 1–2° (for example LSA 86.9° against 87°, DSA 58.8° against 60°), which checks the measurement definitions.
 * No real CT has been tested.
 
 ## How the numbers are judged
@@ -119,7 +124,8 @@ shoulder-muscle model is licence-gated and has no in-browser build. So the app r
 2. For a radiograph with an implant, choose the **glenosphere or head size**: its outline then calibrates the image,
    removing film magnification. Without it, distances use the stored pixel spacing (typically 5–15% too large) or are
    withheld.
-3. Landmarks are placed automatically. Check them, drag any that are off (a magnifier appears), then press
+3. Landmarks are placed automatically. Check the implant first (glenosphere or head circle, face, stem) — correcting
+   it re-places the bony estimates — then drag any bony landmark that is off (a magnifier appears) and press
    *Confirm estimates*. *Place the next one* walks through anything that could not be placed.
 4. Read **Measurements** (click a row to highlight its construction lines) and **Appraisal**; export the report as
    text, the raw data as CSV, everything including landmark coordinates as JSON, or the annotated image.
@@ -149,6 +155,8 @@ npm run e2e
 * `src/measure/` — geometry, the protocol engine, one declarative protocol per study type, muscle analysis, the
   implant-choice synthesis, and the reference list.
 * `src/app/` — viewer (2D and multi-planar), panel, report builders; `src/worker/` — the Web Worker.
+* `test/corpus/` evaluates the pipeline on a local corpus of real films and learns the landmark model
+  (`eval.mjs`, `learn.mjs`, `draw.py`); the corpus itself is not distributed.
 * `npm test` runs 102 unit tests (measurement geometry on both sides and with a tilted patient, detection against
   phantom truth, anonymisation, reports). `npm run e2e` drives the built site in headless Chromium (needs Playwright):
   all six study types, a DICOM file with planted identifiers, landmark placement, muscle outlines, exports, and the

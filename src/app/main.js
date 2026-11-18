@@ -8,6 +8,8 @@ import { evaluate, evaluateFindings, appraise } from '../measure/core.js';
 import { circleFrom3, v3, scapularFrame } from '../measure/geom.js';
 import { anatomicVsReverse } from '../measure/decision.js';
 import { seedXray, lateralSignOf } from '../measure/seed.js';
+import { frames as learnedFrames, placeLearned } from '../detect/learned.js';
+import MODEL from '../detect/model.json' with { type: 'json' };
 import { MUSCLES, sampleRoi, roiStats, muscleResults } from '../measure/muscle.js';
 import { detectHeadSphere } from '../detect/ct.js';
 import * as panel from './panel.js';
@@ -110,7 +112,7 @@ function loadNext() {
   if (!q) { $('progress').hidden = true; return; }
   state.loadingName = q.name;
   onProgress({ scope: 'load', fraction: 0.05, label: `Opening ${q.name}…` });
-  worker.postMessage(q.type === 'ct' ? { type: 'ct', seriesId: q.seriesId } : { type: 'xray', id: q.id });
+  worker.postMessage(q.type === 'ct' ? { type: 'ct', seriesId: q.seriesId } : { type: 'xray', id: q.id, implant: state.implant });
   renderItems();
 }
 
@@ -141,8 +143,7 @@ function addItem(item) {
   if (state.cur < 0) {
     // First image: if the detector is confident the study type is different from the one picked, follow it.
     // Only a positively identified implant changes the type: "no implant found" may simply be a missed detection.
-    const k = item.kind === 'xray' ? { reverse: 'reverse', hemi: 'pyc' }[item.det.kind] : item.det.reverse ? 'reverse' : null;
-    if (k && k !== state.implant && !state.implantLocked && (item.kind === 'ct' || item.det.confidence >= 0.6)) { state.implant = k; state.autoSwitched = true; }
+    // the reader chooses the study type; the image is analysed as that type (see redetect on a change of type)
     select(state.items.length - 1);
   } else renderItems();
   loadNext();
@@ -351,6 +352,38 @@ function dragXray(key, pt, phase) {
   }
   set.state[id] = 'manual';
   refresh({ light: phase === 'move' });
+  if (phase !== 'move' && IMPLANT_LM.has(id)) relandmark();
+}
+
+const IMPLANT_LM = new Set(['gs', 'face', 'stem', 'head']);
+
+/**
+ * The reader has corrected the implant: place the bony landmarks again around it with the learned model. Only
+ * landmarks that are still estimates (or missing) move; anything the reader placed or confirmed stays put.
+ */
+function relandmark() {
+  const item = cur();
+  if (!item || item.kind !== 'xray') return;
+  const p = proto(item), set = lmSet(item);
+  const kind = p.id === 'rsa-ap' ? 'reverse' : p.id === 'pyc-ap' ? 'hemi' : null;
+  const m = kind && MODEL.types && MODEL.types[kind];
+  const c = kind === 'reverse' ? set.values.gs : set.values.head;
+  if (!m || !c) return;
+  const A = (q) => [q.x, q.y];
+  const st = set.values.stem ? [A(set.values.stem.a), A(set.values.stem.b)].sort((u, v) => u[1] - v[1]) : null;
+  const face = kind === 'reverse' && set.values.face ? { a: A(set.values.face.a), b: A(set.values.face.b) } : null;
+  const F = learnedFrames({ centre: [c.cx, c.cy], r: c.r, face, stem: st ? { a: st[0], b: st[1] } : null }, item.lateralSign);
+  if (!F) return;
+  const est = placeLearned({ width: item.image.width, height: item.image.height, data: item.image.data }, F, m);
+  let moved = 0;
+  for (const lm of p.landmarks) {
+    const e = est[lm.id];
+    if (!e || IMPLANT_LM.has(lm.id) || set.state[lm.id] === 'manual' || set.state[lm.id] === 'auto') continue;
+    set.values[lm.id] = e.a ? { a: { x: e.a[0], y: e.a[1] }, b: { x: e.b[0], y: e.b[1] } } : { x: e.x, y: e.y };
+    set.state[lm.id] = 'estimated';
+    moved++;
+  }
+  if (moved) { refresh(); toast(`${moved} estimated landmark${moved === 1 ? '' : 's'} re-placed around the corrected implant.`); }
 }
 
 // ───────────────────────── overlays: CT ─────────────────────────
@@ -535,6 +568,7 @@ function nextMissing(includeOptional = false) {
 }
 
 function donePlacing() {
+  if (state.active && IMPLANT_LM.has(state.active)) setTimeout(relandmark, 0);
   const guided = state.guided;
   const next = guided ? nextMissing() : null;
   if (next) arm(next.id, true);
@@ -615,14 +649,10 @@ function renderStudy(item, b) {
   const d = item.det || {};
   if (d.error) notes.push(`<span>${panel.esc(d.error)}</span>`);
   if (item.kind === 'xray') {
-    const seen = { reverse: 'a reverse replacement', hemi: 'a humeral head replacement', native: 'no implant (native shoulder)', unknown: null }[d.kind];
-    const want = { reverse: 'reverse', hemi: 'pyc', native: 'native' }[d.kind];
     const weak = d.reverse && d.reverse.glenosphere.score < 0.6;
-    if (weak && state.implant === 'reverse') notes.push('<span>The glenosphere was found with low confidence. Check its circle before reading any number: drag the centre and the edge handle, or place it again with three clicks on the dome outline. Real films where the humeral tray overlaps the dome are the usual reason.</span>');
-    if (!d.reverse && !d.error && state.implant === 'reverse' && d.kind !== 'unknown') notes.push('<span>No glenosphere was found automatically. Place it by hand: press + next to "Glenosphere outline" and click three points on the dome.</span>');
-    if (seen && want !== state.implant && d.confidence >= 0.5 && want !== 'native') notes.push(`<span>Automatic detection sees ${seen} on this image, not a ${IMPLANTS.find((x) => x.id === state.implant).label.toLowerCase()}. <button class="link" data-act="switch" data-implant="${want}">Switch study type</button></span>`);
-    else if (state.autoSwitched) notes.push(`<span class="info">Study type set from what was detected on the image (${seen || 'unclear'}). Change it above if that is wrong.</span>`);
-    if (d.kind === 'unknown' && !d.error) notes.push('<span>Automatic detection could not make sense of this image. If bone looks dark, press Invert; otherwise place the landmarks by hand.</span>');
+    if (weak && state.implant === 'reverse') notes.push('<span>The glenosphere was found with low confidence. Check its circle before reading any number: drag the centre and the edge handle, or place it again with three clicks on the dome outline.</span>');
+    if (!d.reverse && !d.error && state.implant === 'reverse' && d.implant === 'reverse') notes.push('<span>The implant could not be found automatically on this image. Place the glenosphere by hand: press + next to "Glenosphere outline" and click three points on the dome; the bony landmarks are then estimated around it when you press Detect again.</span>');
+    if (state.implant === 'pyc' && !d.head && !d.error && d.implant === 'pyc') notes.push('<span>The prosthetic head could not be found automatically. Place it by hand with three clicks on its outline.</span>');
     for (const w of item.image.warnings || []) notes.push(`<span>${panel.esc(w)}</span>`);
   } else {
     if (state.implant === 'reverse' && !d.reverse) notes.push('<span>No glenosphere was found automatically in this scan. Place the glenosphere by hand, or switch the study type.</span>');
@@ -828,6 +858,8 @@ function setImplant(id, lock = true) {
     if (item.kind === 'xray' && !viewsFor(id).includes(item.view)) item.view = 'ap';
     if ((state.tab === 'decision' && id !== 'native') || (state.tab === 'muscle' && item.kind !== 'ct')) state.tab = 'landmarks';
     refresh();
+    // the radiograph was analysed as another type: analyse it again as the one now chosen
+    if (item.kind === 'xray' && item.det && item.det.implant && item.det.implant !== id) redetect();
   }
 }
 
@@ -961,7 +993,8 @@ function redetect() {
   }
   onProgress({ scope: 'load', fraction: 0.5, label: 'Looking for the implant…' });
   const im = item.image;
-  worker.postMessage({ type: 'detect', reqId: item.uid, image: { width: im.width, height: im.height, data: im.data, pixelSpacing: im.pixelSpacing } });
+  item.det = { ...(item.det || {}), implant: state.implant };
+  worker.postMessage({ type: 'detect', reqId: item.uid, implant: state.implant, image: { width: im.width, height: im.height, data: im.data, pixelSpacing: im.pixelSpacing } });
 }
 
 bind();

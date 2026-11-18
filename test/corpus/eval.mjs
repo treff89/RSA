@@ -27,6 +27,8 @@ const annotOnly = rest.includes('--annotated-only');
 mkdirSync(out, { recursive: true });
 
 const PROTO_FOR_KIND = { reverse: 'rsa-ap', hemi: 'pyc-ap', native: 'native-ap' };
+// the study type the reader would choose in the app, by corpus label
+const APP_TYPE = { reverse: 'reverse', pyc_hemi: 'pyc', hemi_other: 'pyc', resurfacing: 'pyc', anatomic_tsa: 'pyc', native: 'native' };
 const EXPECT_KIND = { reverse: 'reverse', pyc_hemi: 'hemi', hemi_other: 'hemi', resurfacing: 'hemi', anatomic_tsa: 'hemi', native: 'native' };
 
 /** Published value → our metric (with any conversion). Returns { id, ours→comparable } or null. */
@@ -78,7 +80,7 @@ for (const d of readdirSync(corpus, { withFileTypes: true })) {
   }
 }
 const annotOf = (id) => { if (!annotDir) return null; const f = join(annotDir, `${id}.json`); try { return existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : null; } catch { return null; } };
-const todo = entries.filter((e) => (!only || only.has(e.id)) && (!filter || JSON.stringify(e).includes(filter)) && e.file && !['axillary', 'scapular_y'].includes(e.view) && (!annotOnly || annotOf(e.id)));
+const todo = entries.filter((e) => (!only || only.has(e.id)) && (!filter || JSON.stringify(e).includes(filter)) && e.file && !['axillary', 'scapular_y'].includes(e.view) && (!annotOnly || annotOf(e.id)) && (!arg('--implant') || arg('--implant').split(',').includes(e.implant)));
 
 /** Annotation JSON → landmark values in the app's format (points {x,y}, lines {a,b}, circles {cx,cy,r}). */
 function annotValues(a) {
@@ -116,13 +118,14 @@ for (const e of todo) {
     const { gray, blanked } = grayWithoutOverlay(rgba, w, h);
     const image = { width: w, height: h, data: gray, pixelSpacing: { mm: null } };
     const t0 = performance.now();
-    const det = detectXray(image);
+    // as in the app: analysed as the type the reader chose (--auto-type: let the detector decide)
+    const det = detectXray(image, { ...(rest.includes('--auto-type') ? {} : { implant: APP_TYPE[e.implant] }), axisMode: arg('--axis') || undefined });
     r.ms = Math.round(performance.now() - t0);
     r.size = [w, h]; r.blanked = blanked;
     r.kind = det.kind; r.confidence = det.confidence; r.side = det.side; r.error = det.error;
     r.expectKind = EXPECT_KIND[e.implant] || null;
     r.kindOk = r.expectKind ? r.kind === r.expectKind : null;
-    const protoId = PROTO_FOR_KIND[det.kind] || PROTO_FOR_KIND[r.expectKind] || null;
+    const protoId = rest.includes('--auto-type') ? PROTO_FOR_KIND[det.kind] || PROTO_FOR_KIND[r.expectKind] || null : PROTO_FOR_KIND[r.expectKind] || null;
     if (protoId) {
       const p = PROTOCOLS[protoId];
       const set = seedXray(p, det);

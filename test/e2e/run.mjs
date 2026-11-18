@@ -154,6 +154,14 @@ try {
     await page.mouse.move(sp.x, sp.y); await page.mouse.down(); await page.mouse.move(sp.x + 12, sp.y + 9, { steps: 4 }); await page.mouse.up();
     const moved = await page.evaluate(() => window.__rsa.assess().ctx.L.acr);
     assert.ok(Math.hypot(moved.x - placed.x, moved.y - placed.y) > 5, 'a dragged landmark moves');
+    // correcting the implant re-places the bony landmarks that are still estimates
+    const before = await page.evaluate(() => { const b = window.__rsa.assess(); return { gs: b.ctx.L.gs, sgt: b.ctx.L.sgt, st: b.ctx.state.sgt }; });
+    if (before.gs && before.sgt && before.st === 'estimated') {
+      const c = await page.evaluate((g) => window.__rsa.screen({ x: g.cx, y: g.cy }), before.gs);
+      await page.mouse.move(c.x, c.y); await page.mouse.down(); await page.mouse.move(c.x + 15, c.y + 10, { steps: 5 }); await page.mouse.up();
+      const after = await page.evaluate(() => window.__rsa.assess().ctx.L.sgt);
+      assert.ok(Math.hypot(after.x - before.sgt.x, after.y - before.sgt.y) > 2, 'estimated landmarks follow a corrected glenosphere');
+    }
     await page.selectOption('#cal-size', '38');
     const sc = await page.evaluate(() => window.__rsa.assess().scale);
     assert.equal(sc.source, 'implant');
