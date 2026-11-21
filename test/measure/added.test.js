@@ -206,3 +206,54 @@ test('comparison warns when arm position differs by more than 10°', () => {
   near(r.rows.find((x) => x.id === 'hara').change, 20, 1e-6);
   assert.ok(r.notes.some((n) => /abducted/.test(n)));
 });
+
+// ── arm-position normalisation ──
+import { neutralise, rotateHumerus, SHARA_NEUTRAL } from '../../src/measure/neutral.js';
+import { hara as haraOf, shara as sharaOf } from '../../src/measure/protocols/xray-common.js';
+
+test('normalisation rotates the humerus about the centre of rotation to HARA 0° or to the scapula', () => {
+  for (const side of [1, -1]) {
+    const top = { x: 600, y: 330 }, len = 400, ab = 20;
+    const L = {
+      gs: { cx: 520, cy: 300, r: 90 }, face: { a: { x: 470, y: 210 }, b: { x: 470, y: 390 } },
+      stem: { a: top, b: { x: top.x + len * Math.sin(rad(ab)), y: top.y + len * Math.cos(rad(ab)) } },
+      sgt: { x: 470, y: 210 }, igr: { x: 470, y: 390 }, acr: { x: 690, y: 170 }, acu: { x: 640, y: 180 },
+      ssf: { a: { x: 450, y: 220 }, b: { x: 150, y: 190 } }, gts: { x: 660, y: 290 }, gtl: { x: 720, y: 340 },
+    };
+    const ctx = ctxOf(L, side);
+    const n = neutralise(PROTOCOLS['rsa-ap'], ctx, 'vertical');
+    assert.ok(n.ok);
+    near(haraOf({ ...ctx, L: n.L }), 0, 1e-9, 'HARA after');
+    near(Math.abs(n.deg), ab, 1e-9);
+    // rigid: distances to the centre of rotation and within the humerus are kept; scapular landmarks do not move
+    const d = (p, q) => Math.hypot(p.x - q.x, p.y - q.y), c = { x: ctx.L.gs.cx, y: ctx.L.gs.cy };
+    near(d(n.L.gtl, c), d(ctx.L.gtl, c), 1e-9); near(d(n.L.gts, n.L.gtl), d(ctx.L.gts, ctx.L.gtl), 1e-9);
+    assert.deepEqual(n.L.acr, ctx.L.acr); assert.deepEqual(n.L.gs, ctx.L.gs);
+    // bringing an abducted arm down raises the DSA and lowers the LSA (the direction reported by Mitrousias 2026)
+    const raw = byId(evaluate(PROTOCOLS['rsa-ap'], ctx)), neu = byId(evaluate(PROTOCOLS['rsa-ap'], { ...ctx, L: n.L, raw: ctx }));
+    assert.ok(neu.dsa.value > raw.dsa.value, `DSA ${raw.dsa.value} → ${neu.dsa.value}`);
+    assert.ok(neu.lsa.value < raw.lsa.value, `LSA ${raw.lsa.value} → ${neu.lsa.value}`);
+    near(neu.hara.value, ab, 1e-9, 'HARA is reported as taken');
+    const s = neutralise(PROTOCOLS['rsa-ap'], ctx, 'scapula');
+    near(sharaOf({ ...ctx, L: s.L }), SHARA_NEUTRAL, 1e-9, 'SHARA after');
+  }
+});
+
+test('normalisation of a native film turns the head about its own centre and needs the shaft line', () => {
+  const L = {
+    head: { cx: 600, cy: 300, r: 100 }, sgt: { x: 480, y: 220 }, igr: { x: 480, y: 400 }, acr: { x: 700, y: 160 }, acu: { x: 640, y: 170 },
+    gts: { x: 680, y: 250 }, gtl: { x: 720, y: 300 },
+  };
+  assert.equal(neutralise(PROTOCOLS['native-ap'], ctxOf(L, 1), 'vertical').ok, false);
+  const L2 = { ...L, hcl: { a: { x: 600, y: 420 }, b: { x: 700, y: 820 } } };
+  const ctx = ctxOf(L2, 1);
+  const n = neutralise(PROTOCOLS['native-ap'], ctx, 'vertical');
+  assert.ok(n.ok);
+  assert.deepEqual(n.L.head, ctx.L.head);
+  const a = byId(evaluate(PROTOCOLS['native-ap'], ctx)), b = byId(evaluate(PROTOCOLS['native-ap'], { ...ctx, L: n.L }));
+  near(a.ahd.value, b.ahd.value, 1e-9, 'AHD unchanged');
+  assert.notEqual(a.atd.value, b.atd.value);
+  // the rotation helper leaves scapular landmarks untouched
+  const r = rotateHumerus(ctx.L, { x: 600, y: 300 }, 30);
+  assert.deepEqual(r.acu, ctx.L.acu);
+});

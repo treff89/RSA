@@ -111,17 +111,17 @@ export function postureMetrics(needs) {
     {
       id: 'hara', label: 'Humeral abduction resting angle (HARA)', unit: '°', group: G_POSTURE,
       needs: [], softNeeds: hcl,
-      compute: (ctx) => hara(ctx),
+      compute: (ctx) => hara(ctx.raw || ctx),
       format: (v) => `${Math.abs(v).toFixed(1)}° ${v >= 0 ? 'abduction' : 'adduction'}`,
       gauge: { min: -10, max: 45 }, evidence: 'descriptive', refs: ['shao2025', 'mitrousias2026', 'shekhbihi2026'],
-      what: 'Angle between the humeral shaft centre line and the vertical of the image (the plumb line on a standing film). It records how far the arm hung away from the body when the film was taken.',
+      what: 'Angle between the humeral shaft centre line and the vertical of the image (the plumb line on a standing film). It records how far the arm hung away from the body when the film was taken — always as taken, even when the other measurements are normalised to a standard arm position.',
       caveat: 'Assumes the image is upright as taken: a rotated or cropped picture, or a supine film, invalidates it. The shaft line comes from the canal lines if placed, else from the stem (or a drawn centre line).',
       bands: [
         { upTo: 20, status: 'info', tag: 'Arm at the side', say: (v) => `The arm rests in ${Math.abs(v).toFixed(0)}° of ${v >= 0 ? 'abduction' : 'adduction'} (standing films: mean 7–12°, range 0–43°). Lateralisation and distalisation angles are only comparable between films with a similar HARA: from 10° to 30° of HARA the DSA fell by about 9° and the LSA rose by about 5° in a 3D model.` },
         { status: 'info', tag: 'Abducted', say: (v) => `The arm rests in ${v.toFixed(0)}° of abduction — more than on most standing films. This lowers the DSA and raises the LSA (about −4.5° and +2.5° per 10° of HARA in a 3D model), so read those angles with that in mind.` },
       ],
       draw: (ctx) => {
-        const h = humeralLine(ctx);
+        const h = humeralLine(ctx.raw || ctx);
         if (!h) return [];
         const len = Math.hypot(h.b.x - h.a.x, h.b.y - h.a.y);
         return [shape.line(h.a, h.b), shape.line(h.a, { x: h.a.x, y: h.a.y + len }, { dash: true }), shape.arc(h.a, { x: h.a.x, y: h.a.y + len }, h.b)];
@@ -130,14 +130,14 @@ export function postureMetrics(needs) {
     {
       id: 'shara', label: 'Scapulohumeral abduction angle (SHARA)', unit: '°', group: G_POSTURE,
       needs: ['ssf'], softNeeds: hcl,
-      compute: (ctx) => shara(ctx),
+      compute: (ctx) => shara(ctx.raw || ctx),
       format: (v) => `${v.toFixed(1)}° (RSA-HARA ${(v - 90).toFixed(1)}°)`,
       gauge: { min: 80, max: 150 }, evidence: 'descriptive', refs: ['shao2025', 'mitrousias2026', 'shekhbihi2026'],
       what: 'Angle between the humeral shaft and the supraspinatus fossa line (pointing medially): the arm\'s abduction relative to the scapula, so independent of how the patient stood. RSA-HARA = SHARA − 90°.',
       caveat: 'Descriptive: standing pre-operative films averaged 116 ± 10° (range 90–144°). In a planning study a larger RSA-HARA increased simulated impingement-free motion, so it matters most for planning and for comparing films.',
       bands: [{ status: 'info', tag: '', say: (v) => `The humerus lies ${v.toFixed(0)}° from the fossa line (${(v - 90).toFixed(0)}° from its perpendicular). Compare it between films: a change of more than about 10° means the films were taken with the arm in different positions relative to the scapula.` }],
       draw: (ctx) => {
-        const h = humeralLine(ctx);
+        const h = humeralLine(ctx.raw || ctx);
         if (!h) return [];
         return [shape.ray(ctx.L.ssf.a, ctx.L.ssf.b, { dash: true }), shape.line(h.a, h.b)];
       },

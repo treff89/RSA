@@ -8,6 +8,7 @@ import { evaluate, evaluateFindings, appraise } from '../measure/core.js';
 import { circleFrom3, v3, scapularFrame } from '../measure/geom.js';
 import { anatomicVsReverse } from '../measure/decision.js';
 import { compareFilms } from '../measure/compare.js';
+import { neutralise, neutralNote, TARGETS, HUMERAL } from '../measure/neutral.js';
 import { seedXray, lateralSignOf, ssfPrior } from '../measure/seed.js';
 import { frames as learnedFrames, placeLearned } from '../detect/learned.js';
 import MODEL from '../detect/model.json' with { type: 'json' };
@@ -42,6 +43,7 @@ const state = {
   selMetric: null,
   drawing: null,           // CT muscle outline in progress
   clinical: { age: '', cuff: 'unknown', pseudoparesis: false, inflammatory: false },
+  neutral: 'off',          // arm-position normalisation for AP radiographs: 'off' | 'vertical' | 'scapula'
   queue: [],               // items still to load
   seq: 0,
 };
@@ -218,7 +220,12 @@ function assess(item) {
   const p = proto(item);
   const set = lmSet(item);
   const sc = scaleInfo(item, p, set);
-  const ctx = { L: set.values, state: set.state, mm: sc.mm, mmSource: sc.source, dicomMm: sc.dicomMm, nominal: sc.nominal, scaleNote: sc.note || '', lateralSign: item.lateralSign || 1 };
+  let ctx = { L: set.values, state: set.state, mm: sc.mm, mmSource: sc.source, dicomMm: sc.dicomMm, nominal: sc.nominal, scaleNote: sc.note || '', lateralSign: item.lateralSign || 1 };
+  let neutral = null;
+  if (state.neutral !== 'off' && item.kind === 'xray' && p.view === 'ap') {
+    neutral = neutralise(p, ctx, state.neutral);
+    if (neutral.ok) ctx = { ...ctx, L: neutral.L, raw: { ...ctx }, neutral, neutralNote: neutralNote(neutral, p) };
+  }
   const labels = Object.fromEntries(p.landmarks.map((l) => [l.id, l.label]));
   const results = evaluate(p, ctx).map((r) => ({ ...r, missingLabels: labels }));
   if (!item.findings[p.id]) item.findings[p.id] = {};
@@ -226,7 +233,7 @@ function assess(item) {
   const extraResults = item.kind === 'ct' ? muscleAll(item) : [];
   const appraisal = appraise(p, [...results, ...extraResults], findings, ctx);
   // muscle results are never "not measured" items — drop them from that list if empty
-  return { name: item.name, protocol: p, ctx, results, findings, appraisal, scale: sc, extraResults, item };
+  return { name: item.name, protocol: p, ctx, results, findings, appraisal, scale: sc, extraResults, item, neutral };
 }
 
 function muscleAll(item) {
@@ -311,6 +318,21 @@ function xrayOverlay(item, b) {
       shapes.push({ type: 'circle', c: { x: v.cx, y: v.cy }, r: v.r, color, width: 1.6, dash: dashed, cross: true, alpha: 0.9 });
       handles.push({ key: `${lm.id}.c`, x: v.cx, y: v.cy, color, dashed, small: true, label });
       handles.push({ key: `${lm.id}.r`, x: v.cx + v.r * Math.cos(ang), y: v.cy + v.r * Math.sin(ang), color, dashed, small: true });
+    }
+  }
+  if (b.ctx.neutral) {
+    // the humerus as measured: rotated about the centre of rotation to the standard arm position
+    const G = '#c79bff', V = b.ctx.L, n = b.ctx.neutral;
+    for (const lm of p.landmarks) {
+      const v = V[lm.id];
+      if (!v || !HUMERAL.has(lm.id) || lm.id === 'head') continue;
+      if (lm.kind === 'point') shapes.push({ type: 'circle', c: v, r: 5, color: G, width: 2, alpha: 1, screen: true });
+      else if (lm.kind === 'line') shapes.push({ type: 'line', a: v.a, b: v.b, color: G, width: lm.id === 'stem' || lm.id === 'hcl' ? 2.4 : 1.4, dash: !(lm.id === 'stem' || lm.id === 'hcl'), alpha: 0.95 });
+    }
+    const id = V.stem ? 'stem' : V.hcl ? 'hcl' : null;
+    if (id && set.values[id]) {
+      const far = (l) => (Math.hypot(l.a.x - n.centre.x, l.a.y - n.centre.y) > Math.hypot(l.b.x - n.centre.x, l.b.y - n.centre.y) ? l.a : l.b);
+      shapes.push({ type: 'line', a: far(set.values[id]), b: far(V[id]), color: G, width: 1.4, dash: true, alpha: 1, label: `${Math.abs(n.deg).toFixed(0)}° to ${state.neutral === 'scapula' ? 'scapular neutral' : 'vertical'}` });
     }
   }
   if (state.showLines) {
@@ -558,7 +580,7 @@ function fillFromTruth() {
   const p = proto(item), set = lmSet(item);
   const pt = (a) => (item.kind === 'xray' ? { x: a[0], y: a[1] } : a);
   const alias = item.kind === 'xray'
-    ? { gs: t.glenosphere, face: t.glenosphere && t.glenosphere.face }
+    ? { gs: t.glenosphere, face: t.glenosphere && t.glenosphere.face, hcl: t.shaft }
     : { gs: t.glenosphere && { c: t.glenosphere.center, r: t.glenosphere.radius }, head: t.headCenter && { c: t.headCenter, r: t.headRadius }, igr: t.ginf, sgr: t.gsup };
   for (const lm of p.landmarks) {
     if (set.values[lm.id] && set.state[lm.id] !== 'estimated') continue;
@@ -705,6 +727,15 @@ function renderStudy(item, b) {
         <select id="cal-size"><option value="">Unknown</option>${cal.sizes.map((s) => `<option value="${s}"${item.calib.size === s ? ' selected' : ''}>${s} mm</option>`).join('')}<option value="other"${item.calib.size && !known ? ' selected' : ''}>Other…</option></select>
         ${item.calib.size && !known ? `<input id="cal-custom" type="number" min="20" max="70" step="0.5" value="${item.calib.size}"> mm` : ''}</div>
         <span class="help">${panel.esc(cal.hint)}</span>`;
+    }
+    if (b.protocol.view === 'ap') {
+      const n = b.neutral;
+      const btn = (v, t) => `<button data-neutral="${v}" class="${state.neutral === v ? 'on' : ''}">${t}</button>`;
+      html += `<div class="calib-row neutral-row"><span class="lbl">Arm position</span><div class="seg" role="group" aria-label="Arm position normalisation">${btn('off', 'As taken')}${btn('vertical', 'Arm vertical')}${btn('scapula', 'To scapula')}</div></div>
+        <span class="help">${state.neutral === 'off'
+          ? 'Measured as the film was taken. Choose a standard arm position to rotate the humerus (with its implant) about the centre of rotation before measuring, so films taken in different abduction are comparable.'
+          : n && n.ok ? `Measured with the humerus rotated <b>${Math.abs(n.deg).toFixed(1)}°</b> about the centre of rotation (${state.neutral === 'scapula' ? `SHARA ${n.before.toFixed(0)}° → ${n.want}°` : `HARA ${n.before.toFixed(0)}° → 0°`}); the purple outline shows the humerus as measured. Your landmarks are not moved.`
+            : `Not normalised: ${panel.esc(n ? n.reason : '')}`}</span>`;
     }
     html += b.scale.mm
       ? `<span class="scale">Scale: <b>${panel.esc(b.scale.text)}</b>${b.scale.source === 'dicom' && !item.sample ? ' — includes film magnification' : ''}</span>`
@@ -914,6 +945,7 @@ function setImplant(id, lock = true) {
 function bind() {
   for (const t of document.querySelectorAll('.type')) t.addEventListener('click', () => setImplant(t.dataset.implant));
   $('implant').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setImplant(b.dataset.implant); });
+  $('calib').addEventListener('click', (e) => { const b = e.target.closest('[data-neutral]'); if (b) { state.neutral = b.dataset.neutral; refresh(); } });
   const drop = $('drop');
   $('btn-files').addEventListener('click', (e) => { e.stopPropagation(); $('in-files').click(); });
   $('btn-folder').addEventListener('click', (e) => { e.stopPropagation(); $('in-folder').click(); });
@@ -1050,7 +1082,7 @@ function redetect() {
 bind();
 // Test hook: lets the end-to-end test read state without scraping the DOM. Holds no patient identifiers.
 window.__rsa = {
-  state, assess: () => (cur() ? assess(cur()) : null), decision, setLm: (id, v) => { setLm(id, v); refresh(); }, select, reportText,
+  state, setNeutral: (v) => { state.neutral = v; refresh(); }, assess: () => (cur() ? assess(cur()) : null), decision, setLm: (id, v) => { setLm(id, v); refresh(); }, select, reportText,
   csv: () => buildCsv(bundles()), json: () => buildJson(bundles(), decision(), { implant: state.implant, comparisons: comparisons() }), compare: () => (cur() ? comparisonFor(cur()) : null),
   screen: (p) => { const r = xview.canvas.getBoundingClientRect(), q = xview.toScreen(p); return { x: r.left + q.x, y: r.top + q.y }; },
   ctScreen: (paneId, w) => { const pane = mpr.panes[paneId], r = pane.view.canvas.getBoundingClientRect(), q = pane.view.toScreen(mpr.toPane(pane, w)); return { x: r.left + q.x, y: r.top + q.y }; },

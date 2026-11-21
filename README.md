@@ -14,6 +14,19 @@ of that range and a frank appraisal of what is and is not within it.
 | **Pyrocarbon hemiarthroplasty** | Centre-of-rotation deviation from the native best-fit circle, head size mismatch, head height, an explicit **overstuffing** verdict, acromiohumeral distance, glenoid medialisation, Schippers' medialisation and upward migration (as a share of shaft diameter), stem fit; axillary subluxation | Glenoid version and inclination, head centring (two subluxation indices), erosion; muscles |
 | **Native shoulder** | Critical shoulder angle, acromion index, lateral acromial angle, acromiohumeral and acromion–tuberosity distances, inclination, RSA angle, head size, Samilson–Prieto, deltoid tuberosity index; Hamada, Favard; axillary version and subluxation; **scapular Y-view**: posterior acromial height, tilt and coverage (Gerber's group, posterior instability) | 3D Friedman version, inclination, subluxation, Walch type suggestion; muscle fat fraction and atrophy |
 
+**Arm position normalised.** The arm hangs in different abduction on every film, and that alone moves the LSA, DSA,
+acromion–tuberosity distance and offsets. *Arm position* (under the implant size) can take the measurements as the film
+was taken, with the **arm vertical** (HARA 0°), or **relative to the scapula** (SHARA 104°, the mean scapular
+orientation of standing films with the arm vertical, which also removes scapular rotation). The humerus and its implant
+are rotated rigidly about the centre of rotation (the glenosphere centre, or the head centre on hemi and native films)
+and everything is measured on the rotated landmarks; a purple outline shows the humerus as measured, and the landmarks
+you placed are not moved. On 24 annotated reverse films the DSA correlated with HARA at r = −0.51 as taken and 0.07
+after normalising (LSA 0.36 → −0.19), and across those films LSA rose about 4° and DSA fell about 6° per 10° of
+abduction, close to the 5° and 7° the rotation predicts. It is an in-plane correction: humeral rotation, flexion and
+scapular tilt are not corrected, and on native and hemi films the acromiohumeral distance does not change (the head
+turns about its own centre). Native films need the humeral shaft line, found automatically when enough shaft is on the
+film. With both films normalised, the Compare tab compares them at the same arm position.
+
 **Compare with another film.** With two AP radiographs open, the *Compare* tab pairs them (earlier and current) and lists
 what changed: arm lengthening and humeral lateralisation from a pre-operative film; on follow-up, the acromion–tuberosity
 distance (a rise suggests acromial fracture), stem subsidence relative to the tuberosity, glenosphere tilt and centre of
@@ -173,7 +186,7 @@ npm run e2e
 * `src/app/` — viewer (2D and multi-planar), panel, report builders; `src/worker/` — the Web Worker.
 * `test/corpus/` evaluates the pipeline on a local corpus of real films and learns the landmark model
   (`eval.mjs`, `learn.mjs`, `draw.py`); the corpus itself is not distributed.
-* `npm test` runs 112 unit tests (measurement geometry on both sides and with a tilted patient, detection against
+* `npm test` runs 114 unit tests (measurement geometry on both sides and with a tilted patient, detection against
   phantom truth, anonymisation, reports). `npm run e2e` drives the built site in headless Chromium (needs Playwright):
   all six study types, the Y-view, a DICOM file with planted identifiers, landmark placement, muscle outlines, two films
   compared, exports, and the no-network guarantee.

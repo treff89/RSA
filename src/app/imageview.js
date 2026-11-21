@@ -320,7 +320,7 @@ export class ImageView {
       if (s.label) this._label(g, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, s.label, s.color, k);
     } else if (s.type === 'circle') {
       const c = S(s.c);
-      g.beginPath(); g.arc(c.x, c.y, Math.max(0, s.r * scale), 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.arc(c.x, c.y, Math.max(0, s.screen ? s.r * k : s.r * scale), 0, Math.PI * 2); g.stroke();
       if (s.cross) {
         const t = 5 * k;
         g.setLineDash([]);

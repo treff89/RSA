@@ -113,6 +113,7 @@ export function appraise(protocol, results, findings, ctx) {
     caveats.push('The image is not calibrated, so distances in millimetres are not reported. Angles and ratios are unaffected. Enter the implant size or use an image with pixel spacing to get distances.');
   }
   if (ctx.scaleNote) caveats.push(ctx.scaleNote);
+  if (ctx.neutralNote) caveats.push(ctx.neutralNote);
   if (protocol.caveats) caveats.push(...protocol.caveats(ctx));
   if (notMeasured.length) {
     caveats.push(`Not measured: ${notMeasured.map((r) => r.label).join('; ')}. The summary only covers what was measured.`);

@@ -2,6 +2,7 @@
 // the evaluation harness, so both run exactly the same code.
 import * as xdet from './xray.js';
 import { autoLandmarks, nativeLandmarks } from './auto.js';
+import { findShaft } from './shaft.js';
 
 /**
  * Automatic detection and landmarking of a radiograph. Never throws: a failed detection just means manual placement.
@@ -28,6 +29,7 @@ export function detectXray(image, opts = {}) {
       const L = opts.lateralSign || (side(1) < side(-1) ? 1 : -1);
       out.side = L > 0 ? 'right-of-glenoid' : 'left-of-glenoid';
       try { out.estimates['native-ap'] = nativeLandmarks(img, head, L); } catch { out.estimates['native-ap'] = {}; }
+      try { const sh = findShaft(img, head); if (sh) out.estimates['native-ap'].hcl = { a: sh.a, b: sh.b, confidence: sh.confidence }; } catch { /* no shaft line: placed by hand */ }
     }
   } catch (e) {
     out.error = 'Automatic detection failed on this image; place the landmarks by hand.';

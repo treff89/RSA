@@ -302,6 +302,9 @@ body.working { height: 100vh; overflow: hidden; }
 .calib-row select { width: auto; flex: none; }
 .calib-row input[type=number] { width: 70px; }
 .calib .scale { color: var(--muted); font-size: 12.5px; }
+.neutral-row { margin-top: 4px; }
+.neutral-row .lbl { color: var(--text); }
+.calib .help b { color: #c79bff; }
 .calib .scale b { color: var(--accent); font-family: var(--mono); font-weight: 500; }
 .calib .scale.none { color: var(--warn); }
 

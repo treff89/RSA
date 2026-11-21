@@ -66,6 +66,15 @@ try {
       const q = await results(page);
       assert.ok(Math.abs(q.gsApparent.v - 38) < 0.6, 'glenosphere diameter recovered');
       assert.ok(q.lsa.v > 40 && q.lsa.v < 130 && q.dsa.v > 10 && q.dsa.v < 100);
+      // arm position normalised to vertical: HARA still reported as taken, DSA/LSA re-measured on the rotated humerus
+      await page.click('[data-neutral="vertical"]');
+      const nb = await page.evaluate(() => { const b = window.__rsa.assess(); return b.neutral && { ok: b.neutral.ok, deg: b.neutral.deg, note: b.appraisal.caveats.some((c) => /normalised/.test(c)) }; });
+      assert.ok(nb && nb.ok && Math.abs(nb.deg) > 1 && nb.note, 'arm position normalised');
+      const qn = await results(page);
+      assert.ok(Math.abs(qn.hara.v - q.hara.v) < 1e-6, 'HARA reported as taken');
+      assert.ok(Math.abs(qn.dsa.v - q.dsa.v) > 0.5, 'DSA re-measured');
+      await shot(page, 'rsa-ap-neutral');
+      await page.click('[data-neutral="off"]');
     }
     if (proto === 'native-ap') {
       // the scapular Y-view protocol: four clicks give posterior acromial height, tilt and coverage

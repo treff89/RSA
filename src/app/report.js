@@ -114,7 +114,8 @@ export function buildJson(bundles, decision, opts = {}) {
       name: b.name,
       protocol: b.protocol.id,
       scale: b.scale || null,
-      landmarks: round(b.ctx.L),
+      landmarks: round(b.ctx.raw ? b.ctx.raw.L : b.ctx.L),
+      armPositionNormalised: b.ctx.neutral ? { target: b.ctx.neutral.target, rotationDeg: +b.ctx.neutral.deg.toFixed(2), asTaken: +b.ctx.neutral.before.toFixed(2), centreOfRotation: round(b.ctx.neutral.centre), measuredOnLandmarks: round(b.ctx.L) } : null,
       landmarkSource: b.ctx.state,
       measurements: [...b.results, ...(b.extraResults || [])].map((r) => ({
         id: r.id, label: r.label, value: Number.isFinite(r.value) ? +r.value.toFixed(3) : null, unit: r.unit, status: r.status, band: r.tag,

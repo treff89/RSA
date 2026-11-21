@@ -45,7 +45,7 @@ const Q = {
   gtLat: { label: 'Tuberosity lateral to acromion', kind: 'dist', f: (b) => (L(b).acr && L(b).gtl ? dot(sub(L(b).gtl, L(b).acr), lateral(b.ctx)) : null) },
   lsa: { label: 'Lateralisation shoulder angle (LSA)', kind: 'angle', f: (b) => (L(b).sgt && L(b).acr && L(b).gtl ? angleAt(L(b).sgt, L(b).acr, L(b).gtl) : null) },
   dsa: { label: 'Distalisation shoulder angle (DSA)', kind: 'angle', f: (b) => (L(b).sgt && L(b).acr && L(b).gts ? angleAt(L(b).acr, L(b).sgt, L(b).gts) : null) },
-  hara: { label: 'Humeral abduction resting angle (HARA)', kind: 'angle', f: (b) => { const v = hara(b.ctx); return Number.isFinite(v) ? v : null; } },
+  hara: { label: 'Humeral abduction resting angle (HARA, as taken)', kind: 'angle', f: (b) => { const v = hara(b.ctx.raw || b.ctx); return Number.isFinite(v) ? v : null; } },
   tilt: { label: 'Glenosphere inclination (+ superior)', kind: 'angle', f: (b) => (L(b).face && L(b).ssf ? tiltVsFossa(L(b).face, L(b).ssf, b.ctx) : null) },
   corLat: { label: 'Centre of rotation lateral to glenoid', kind: 'dist', f: (b) => { const c = cor(b); if (!c || !L(b).sgt || !L(b).igr) return null; const g = supInf({ a: L(b).sgt, b: L(b).igr }); return signedDistToLine(c, g.a, g.b, lateral(b.ctx)); } },
   corInf: { label: 'Centre of rotation below glenoid centre', kind: 'dist', f: (b) => { const c = cor(b); if (!c || !L(b).sgt || !L(b).igr) return null; const g = supInf({ a: L(b).sgt, b: L(b).igr }); return dot(sub(c, { x: (g.a.x + g.b.x) / 2, y: (g.a.y + g.b.y) / 2 }), unit(sub(g.b, g.a))); } },
@@ -212,7 +212,10 @@ export function compareFilms(e, c, opts = {}) {
   }
   const notes = [];
   const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
-  if (byId.hara && Math.abs(byId.hara.change) > 10 && (byId.lsa || byId.dsa)) {
+  const bothNeutral = e.ctx.neutral && c.ctx.neutral && e.ctx.neutral.target === c.ctx.neutral.target;
+  if (bothNeutral) notes.push(`Both films are normalised to the same arm position (${e.ctx.neutral.target === 'scapula' ? 'relative to the scapula' : 'arm vertical'}): the humerus of each was rotated about its centre of rotation (${e.ctx.neutral.deg.toFixed(0)}° and ${c.ctx.neutral.deg.toFixed(0)}°), so differences in how the arm hung are removed from the other rows.`);
+  else if (e.ctx.neutral || c.ctx.neutral) notes.push('Only one of the two films could be normalised to a standard arm position, so posture differences are not removed. Place the missing landmark (stem, shaft line or fossa line) on the other film.');
+  if (!bothNeutral && byId.hara && Math.abs(byId.hara.change) > 10 && (byId.lsa || byId.dsa)) {
     notes.push(`The arm hangs ${Math.abs(byId.hara.change).toFixed(0)}° ${byId.hara.change > 0 ? 'more' : 'less'} abducted on the current film. Part of any change in LSA and DSA is posture, not surgery or migration: in every pair of consecutive films in one series the more abducted film had the higher LSA and the lower DSA.`);
   }
   if (type === 'other') notes.push('These films are of different study types (for example a hemiarthroplasty against a reverse); only quantities defined on both are listed and none is graded.');
