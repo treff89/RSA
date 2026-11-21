@@ -416,7 +416,7 @@ function relandmark() {
   const item = cur();
   if (!item || item.kind !== 'xray') return;
   const p = proto(item), set = lmSet(item);
-  const kind = p.id === 'rsa-ap' ? 'reverse' : p.id === 'pyc-ap' ? 'hemi' : null;
+  const kind = p.id === 'rsa-ap' ? 'reverse' : p.id === 'pyc-ap' ? 'hemi' : p.id === 'native-ap' ? 'native' : null;
   const m = kind && MODEL.types && MODEL.types[kind];
   const c = kind === 'reverse' ? set.values.gs : set.values.head;
   if (!m || !c) return;

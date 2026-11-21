@@ -4,6 +4,8 @@
 // Landmarks are expressed in frames fixed to the implant, in units of its radius R:
 //   scap — origin: glenosphere / head centre; lat: normal of the glenosphere back face (towards the humerus);
 //          sup: along the face, superior. Scapular landmarks (acromion, glenoid rim, fossa) live here.
+//          A native shoulder has no implant axes: the frame is the image's own (lateral = towards the humerus,
+//          superior = up), centred on the humeral head.
 //   hum  — origin: proximal end of the stem; sup: up the stem axis; lat: perpendicular, towards the lateral side.
 //          Humeral landmarks (tuberosity) live here: the arm moves independently of the scapula.
 // Per landmark the model says how it is placed: 'prior' (learned position), 'template' (search near the learned
@@ -38,6 +40,8 @@ export function frames(imp, lateralHint) {
   } else if (up) {
     lat = [-up[1], up[0]];
     if (lateralHint && lat[0] * lateralHint < 0) lat = [-lat[0], -lat[1]];
+  } else if (lateralHint) {
+    lat = [Math.sign(lateralHint), 0];   // native shoulder: no implant axes — the image axes, lateral to the humerus side
   } else return null;
   let sup = [lat[1], -lat[0]];
   if (sup[1] > 0) sup = [-sup[0], -sup[1]];
@@ -120,7 +124,7 @@ export function outlineExtreme(g, F, q0, sd, kind, span) {
 /** Template search near the learned position; λ weighs the learned position against appearance. */
 export function templateSearch(g, F, m, opts = {}) {
   const { N, half } = m.patch;
-  const lambda = opts.lambda ?? 0.15;
+  const lambda = opts.lambda ?? m.lambda ?? 0.15;
   const T = m.template;
   let best = null, bv = -Infinity, bc = 0;
   const [sx, sy] = m.sd;
@@ -147,7 +151,7 @@ export function placeLearned(g, F, model) {
   const span = intensitySpan(g);
   for (const [id, m] of Object.entries(model.landmarks || {})) {
     const Fr = F[m.frame];
-    if (!Fr) continue;
+    if (!Fr || m.method === 'heuristic') continue;   // the hand-written estimate did better in testing: keep it
     let q = m.q, conf = 0.3;
     if (m.method === 'template' && m.template) {
       const r = templateSearch(g, Fr, m);

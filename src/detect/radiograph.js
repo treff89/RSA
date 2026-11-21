@@ -3,6 +3,8 @@
 import * as xdet from './xray.js';
 import { autoLandmarks, nativeLandmarks } from './auto.js';
 import { findShaft } from './shaft.js';
+import { frames as learnedFrames, placeLearned } from './learned.js';
+import MODEL from './model.json' with { type: 'json' };
 
 /**
  * Automatic detection and landmarking of a radiograph. Never throws: a failed detection just means manual placement.
@@ -29,6 +31,11 @@ export function detectXray(image, opts = {}) {
       const L = opts.lateralSign || (side(1) < side(-1) ? 1 : -1);
       out.side = L > 0 ? 'right-of-glenoid' : 'left-of-glenoid';
       try { out.estimates['native-ap'] = nativeLandmarks(img, head, L); } catch { out.estimates['native-ap'] = {}; }
+      // learned positions relative to the head (where the model beat the hand-written estimate in testing)
+      try {
+        const F = MODEL.types && MODEL.types.native ? learnedFrames({ centre: [head.cx, head.cy], r: head.r }, L) : null;
+        if (F) Object.assign(out.estimates['native-ap'], placeLearned(img, F, MODEL.types.native));
+      } catch { /* keep the hand-written estimates */ }
       try { const sh = findShaft(img, head); if (sh) out.estimates['native-ap'].hcl = { a: sh.a, b: sh.b, confidence: sh.confidence }; } catch { /* no shaft line: placed by hand */ }
     }
   } catch (e) {

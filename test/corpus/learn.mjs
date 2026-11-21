@@ -13,6 +13,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { grayWithoutOverlay } from '../../src/detect/overlay.js';
 import { frames, toFrame, patch, intensitySpan, outlineExtreme, templateSearch } from '../../src/detect/learned.js';
+import { nativeLandmarks } from '../../src/detect/auto.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -24,6 +25,8 @@ const detected = framesFile ? Object.fromEntries(readFileSync(framesFile, 'utf8'
 if (!annotDir) { console.error('usage: node test/corpus/learn.mjs <annot-dir> [out.json]'); process.exit(2); }
 const out = outArg || join(here, '../../src/detect/model.json');
 const N = 21, HALF = 0.45;
+// template variants tried per landmark: [patch half-width in R, weight of the learned position]
+const VARIANTS = [[0.3, 0.15], [0.45, 0.15], [0.65, 0.15], [0.45, 0.05], [0.45, 0.35]];
 
 function load(file) {
   const buf = execFileSync('python3', ['-I', join(here, 'decode.py'), file], { maxBuffer: 1 << 30 });
@@ -39,6 +42,7 @@ const q75 = (xs) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min
 function implantOf(lm, kind) {
   const c = kind === 'reverse' ? lm.gs : lm.head;
   if (!c || c.q === 'absent' || !(c.r > 0)) return null;
+  if (kind === 'native') return { centre: [c.cx, c.cy], r: c.r, face: null, stem: null };
   const stem = ln(lm.stem);
   const face = kind === 'reverse' ? ln(lm.face) : null;
   if (kind === 'reverse' && (!face || !stem)) return null;
@@ -58,6 +62,12 @@ const GROUPS = {
     points: { sgt: 'scap', igr: 'scap', acr: 'scap', acu: 'scap', gts: 'hum', pcA: 'hum', pcB: 'hum', pcC: 'hum' },
     outline: { pcA: 'lateral', acr: 'lateral', gts: 'superior', pcB: 'superior' },
     lines: {},
+  },
+  native: {
+    implants: ['native'],
+    points: { sgt: 'scap', igr: 'scap', acr: 'scap', acu: 'scap', gts: 'scap', gtl: 'scap' },
+    outline: { gtl: 'lateral', acr: 'lateral', gts: 'superior' },
+    lines: { ssf: 'scap' },
   },
 };
 
@@ -97,36 +107,50 @@ for (const [kind, G] of Object.entries(GROUPS)) {
   for (const [id, fr] of Object.entries(G.points)) {
     const have = films.filter((f) => f.F[fr] && pt(f.lm[id]));
     if (have.length < 5) continue;
-    const stats = (train) => {
+    const stats = (train, half = HALF) => {
       const qs = train.map((f) => toFrame(f.F[fr], pt(f.lm[id])));
       const q = [med(qs.map((x) => x[0])), med(qs.map((x) => x[1]))];
       const sd = [0, 1].map((k) => Math.max(0.15, Math.sqrt(qs.reduce((s, x) => s + (x[k] - q[k]) ** 2, 0) / qs.length)));
       const tpl = new Float32Array(N * N);
       let nt = 0;
-      for (const f of train) { const p = patch(f.g, f.F[fr], toFrame(f.F[fr], pt(f.lm[id])), N, HALF); if (p) { for (let t = 0; t < tpl.length; t++) tpl[t] += p[t]; nt++; } }
+      for (const f of train) { const p = patch(f.g, f.F[fr], toFrame(f.F[fr], pt(f.lm[id])), N, half); if (p) { for (let t = 0; t < tpl.length; t++) tpl[t] += p[t]; nt++; } }
       for (let t = 0; t < tpl.length; t++) tpl[t] /= nt || 1;
-      return { q, sd, template: tpl, patch: { N, half: HALF } };
+      return { q, sd, template: tpl, patch: { N, half } };
     };
-    const err = { prior: [], template: [], outline: [] };
+    const err = { prior: [], outline: [], ...(kind === 'native' ? { heuristic: [] } : {}) };
+    for (const [h, l] of VARIANTS) err[`template:${h}:${l}`] = [];
     for (const test of have) {
-      const m = stats(have.filter((f) => f !== test));
+      const train = have.filter((f) => f !== test);
+      const m = stats(train);
       const truth = toFrame(test.F[fr], pt(test.lm[id]));
       const d = (q) => Math.hypot(q[0] - truth[0], q[1] - truth[1]);
       err.prior.push(d(m.q));
-      const t = templateSearch(test.g, test.F[fr], m);
-      err.template.push(d(t ? t.q : m.q));
+      const byHalf = {};
+      for (const [h, l] of VARIANTS) {
+        const mh = byHalf[h] || (byHalf[h] = stats(train, h));
+        const t = templateSearch(test.g, test.F[fr], mh, { lambda: l });
+        err[`template:${h}:${l}`].push(d(t ? t.q : m.q));
+      }
       if (G.outline[id]) { const o = outlineExtreme(test.g, test.F[fr], m.q, m.sd, G.outline[id], test.span); err.outline.push(d(o || m.q)); }
+      if (err.heuristic) {
+        // the app's hand-written native estimate, from the same (annotated) head circle
+        if (!test.heur) { const h = test.lm.head; try { test.heur = nativeLandmarks(test.g, { cx: h.cx, cy: h.cy, r: h.r }, Math.sign(test.F.scap.lat[0])); } catch { test.heur = {}; } }
+        const e = test.heur[id];
+        err.heuristic.push(e && Number.isFinite(e.x) ? d(toFrame(test.F[fr], [e.x, e.y])) : d(m.q));
+      }
     }
     const score = (e) => (e.length ? med(e) + 0.25 * q75(e) : Infinity);
-    const method = Object.keys(err).reduce((b, k) => (score(err[k]) < score(err[b]) ? k : b), 'prior');
-    const full = stats(have);
+    const best = Object.keys(err).reduce((b, k) => (score(err[k]) < score(err[b]) ? k : b), 'prior');
+    const [method, vh, vl] = best.startsWith('template:') ? ['template', +best.split(':')[1], +best.split(':')[2]] : [best];
+    const full = stats(have, vh || HALF);
     T.landmarks[id] = {
       frame: fr, method, q: full.q.map((v) => +v.toFixed(3)), sd: full.sd.map((v) => +v.toFixed(3)), n: have.length,
-      looMedian: +med(err[method]).toFixed(3),
+      looMedian: +med(err[best]).toFixed(3),
       ...(method === 'outline' ? { outline: G.outline[id] } : {}),
-      ...(method === 'template' ? { template: Array.from(full.template, (v) => +v.toFixed(3)), patch: full.patch } : {}),
+      ...(method === 'template' ? { template: Array.from(full.template, (v) => +v.toFixed(3)), patch: full.patch, lambda: vl } : {}),
     };
-    console.log(`  ${id.padEnd(4)} n ${have.length}: prior ${med(err.prior).toFixed(2)} | template ${med(err.template).toFixed(2)}${err.outline.length ? ` | outline ${med(err.outline).toFixed(2)}` : ''}  → ${method}`);
+    const tb = Object.keys(err).filter((k) => k.startsWith('template:')).reduce((b, k) => (score(err[k]) < score(err[b]) ? k : b));
+    console.log(`  ${id.padEnd(4)} n ${have.length}: prior ${med(err.prior).toFixed(2)} | best template ${med(err[tb]).toFixed(2)} (${tb.slice(9)})${err.outline.length ? ` | outline ${med(err.outline).toFixed(2)}` : ''}${err.heuristic ? ` | heuristic ${med(err.heuristic).toFixed(2)}` : ''}  → ${best}`);
   }
   for (const [id, fr] of Object.entries(G.lines)) {
     const have = films.filter((f) => f.F[fr] && ln(f.lm[id]));
