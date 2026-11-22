@@ -19,7 +19,10 @@ import openjpegWasm from '@cornerstonejs/codec-openjpeg/decodewasm';
 
 setWasmBinaries({ charls: charlsWasm, openjpeg: openjpegWasm });
 
-const intake = new Intake();
+// one intake per batch of files: a later batch (e.g. the pre-operative film) is added without disturbing the first.
+// Ids handed to the page carry the batch number: "<batch>:<id>".
+let intakes = [new Intake()];
+const split = (id) => { const k = String(id).indexOf(':'); return k < 0 ? [intakes[0], String(id)] : [intakes[Number(String(id).slice(0, k))], String(id).slice(k + 1)]; };
 const post = (msg, transfer) => self.postMessage(msg, transfer || []);
 const progress = (scope, fraction, label) => post({ type: 'progress', scope, fraction, label });
 // Error messages come from our own modules and never contain file names or header values.
@@ -75,23 +78,34 @@ function softWindow(d) {
   return { center: (lo + hi) / 2, width: Math.max(1e-6, (hi - lo) * 1.15) };
 }
 
-async function onScan(files) {
+async function onScan(files, append = false) {
   const sources = files.map((f) => ({ name: f.webkitRelativePath || f.name, size: f.size, read: () => f.arrayBuffer() }));
-  intake.reset();
+  if (!append) { for (const i of intakes) i.reset(); intakes = []; }
+  const intake = new Intake();
+  intakes.push(intake);
+  const b = intakes.length - 1;
   const result = await intake.scan(sources, (p) => progress('scan', p.total ? p.done / p.total : 0, p.message || 'Reading and anonymising files…'));
-  post({ type: 'scanned', result });
+  for (const r of result.radiographs) r.id = `${b}:${r.id}`;
+  for (const r of result.rasters) r.id = `${b}:${r.id}`;
+  if (result.ct) {
+    for (const sr of result.ct.series) sr.id = `${b}:${sr.id}`;
+    if (result.ct.recommendedId != null) result.ct.recommendedId = `${b}:${result.ct.recommendedId}`;
+  }
+  post({ type: 'scanned', result, append });
 }
 
 async function onXray(id, implant) {
   progress('load', 0.2, 'Decoding image…');
-  const image = id.startsWith('r') ? await decodeRaster(await intake.readRaster(id)) : await intake.loadRadiograph(id);
+  const [intake, lid] = split(id);
+  const image = lid.startsWith('r') ? await decodeRaster(await intake.readRaster(lid)) : await intake.loadRadiograph(lid);
   progress('load', 0.6, 'Looking for the implant…');
   const det = detectXray(image, { implant });
   post({ type: 'xray', id, image, det }, [image.data.buffer]);
 }
 
 async function onCt(seriesId) {
-  const volume = await intake.buildVolume(seriesId, (p) => progress('load', p.total ? 0.85 * (p.done / p.total) : 0, 'Loading slices…'));
+  const [intake, sid] = split(seriesId);
+  const volume = await intake.buildVolume(sid, (p) => progress('load', p.total ? 0.85 * (p.done / p.total) : 0, 'Loading slices…'));
   progress('load', 0.9, 'Looking for the implant and the humeral head…');
   const det = detectCt(volume);
   post({ type: 'ct', seriesId, volume, det }, [volume.data.buffer]);
@@ -124,12 +138,12 @@ if (typeof self !== 'undefined' && typeof self.postMessage === 'function' && typ
   self.onmessage = async (e) => {
     const m = e.data;
     try {
-      if (m.type === 'scan') await onScan(m.files);
+      if (m.type === 'scan') await onScan(m.files, !!m.append);
       else if (m.type === 'xray') await onXray(m.id, m.implant);
       else if (m.type === 'ct') await onCt(m.seriesId);
       else if (m.type === 'sample') onSample(m.modality, m.kind);
       else if (m.type === 'detect') post({ type: 'detected', reqId: m.reqId, det: detectXray(m.image, { lateralSign: m.lateralSign, implant: m.implant }) });
-      else if (m.type === 'reset') intake.reset();
+      else if (m.type === 'reset') { for (const i of intakes) i.reset(); intakes = [new Intake()]; }
     } catch (err) {
       if (m.type === 'scan' && err && err.code === 'NOTHING_USABLE') post({ type: 'error', scope: 'scan', message: err.message, result: err.result || null });
       else fail(m.type === 'scan' ? 'scan' : 'load', err);

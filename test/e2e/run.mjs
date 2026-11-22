@@ -227,14 +227,34 @@ try {
     await shot(page, 'compare');
     assert.match(await page.evaluate(() => window.__rsa.reportText()), /COMPARISON — earlier/);
     assert.equal(await page.evaluate(() => window.__rsa.json().comparisons.length), 1);
+    // add a pre-operative film from the Comparison tab: it joins the study as a native film and is paired
+    {
+      const ph = makePhantom({ kind: 'native', side: 'L', seed: 3 });
+      const { width, height, data } = ph.image;
+      let mn = Infinity, mxv = -Infinity;
+      for (const v of data) { if (v < mn) mn = v; if (v > mxv) mxv = v; }
+      const px = new Uint16Array(width * height);
+      for (let i = 0; i < px.length; i++) px[i] = Math.round(((data[i] - mn) / (mxv - mn)) * 4095);
+      const f = join(dir, 'preop.dcm');
+      writeFileSync(f, xray({ rows: height, cols: width, pixels: px, bits: 16, bitsStored: 12, modality: 'DX', extra: [['00181164', 'DS', '0.22\\0.22'], ['00181114', 'DS', '1.1'], ['00200062', 'CS', 'L'], ['00185101', 'CS', 'AP']] }));
+      await page.setInputFiles('#in-preop', f);
+      await loaded(page, 3);
+      const it = await page.evaluate(() => window.__rsa.state.items.map((i) => ({ implant: i.implant, role: i.role })));
+      assert.deepEqual(it[2], { implant: 'native', role: 'preop' });
+      const pc = await page.evaluate(() => { const c = window.__rsa.compare(); return { type: c.type, preop: c.preop, match: c.match }; });
+      assert.equal(pc.type, 'preop-reverse');
+      assert.ok(pc.preop);
+      assert.ok(pc.match && pc.match.ok, `arm matched to the pre-op film: ${pc.match && pc.match.reason}`);
+      await shot(page, 'comparison-preop');
+    }
     // re-type the earlier film as a native shoulder: only that film changes
     await page.click('[data-item="0"]');
     await page.click('#implant [data-implant="native"]');
     const types = await page.evaluate(() => window.__rsa.state.items.map((i) => i.implant));
-    assert.deepEqual(types, ['native', 'reverse']);
+    assert.deepEqual(types.slice(0, 2), ['native', 'reverse']);
     await page.click('[data-item="1"]');
     assert.equal(await page.evaluate(() => window.__rsa.assess().protocol.id), 'rsa-ap');
-    assert.equal(await page.evaluate(() => window.__rsa.compare().type), 'preop-reverse');
+    assert.ok(['preop-reverse'].includes(await page.evaluate(() => window.__rsa.compare().type)));
     await page.close();
     ok('two films compared; per-image study type; comparison in the exports');
   }

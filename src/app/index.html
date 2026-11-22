@@ -19,35 +19,27 @@
     <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><circle cx="13" cy="13" r="8.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M13 4.5v17M19 19l8 9" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
     <span class="brand-name">RSA Check</span>
   </a>
-  <span class="tagline">Shoulder arthroplasty X-ray &amp; CT assessment</span>
+  
   <span class="spacer"></span>
-  <span class="privacy-pill" title="This page is served with a security policy that blocks every outgoing network request. Your images are read, anonymised and measured inside this browser tab only.">
-    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V6H4a1.5 1.5 0 0 0-1.5 1.5v6A1.5 1.5 0 0 0 4 15h8a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12 6h-.5V4.5A3.5 3.5 0 0 0 8 1zm2 5H6V4.5a2 2 0 1 1 4 0z"/></svg>
-    Nothing is uploaded
-  </span>
+  <span class="privacy-pill" title="The page's security policy blocks every outgoing network request.">Offline · nothing uploaded</span>
   <button id="btn-new" class="btn ghost small" hidden>Open another study</button>
 </header>
 
 <main>
   <!-- ───────────── Start screen ───────────── -->
   <section id="intro">
-    <div class="hero">
-      <h1>Measure the film. Get a straight answer.</h1>
-      <p class="lede">Open a shoulder X-ray or CT. The implant is found automatically, you confirm a handful of landmarks,
-        and every parameter is reported with its raw value, colour-coded against the published range, with a frank
-        appraisal of what is and is not within it. Files are anonymised and analysed on this device.</p>
-    </div>
+    <h1>Shoulder arthroplasty radiographs, measured</h1>
+    <p class="lede">Reverse, hemiarthroplasty and native shoulders, on X-ray or CT. Landmarks are placed automatically for you to
+      check; each value is shown against its published range. Files are anonymised as they are opened and stay on this computer.</p>
 
-    <div class="types" role="radiogroup" aria-label="What is on the images?">
-      <button class="type on" role="radio" aria-checked="true" data-implant="reverse"><b>Reverse replacement</b><span>Lateralisation, distalisation, glenosphere tilt and overhang, notching, stem fit.</span></button>
-      <button class="type" role="radio" aria-checked="false" data-implant="pyc"><b>Pyrocarbon hemiarthroplasty</b><span>Overstuffing, head centring, glenoid erosion, tuberosity, stem fit.</span></button>
-      <button class="type" role="radio" aria-checked="false" data-implant="native"><b>Native shoulder</b><span>Cuff and arthritis indices, version and wear, muscles — and anatomic versus reverse.</span></button>
+    <div class="types" role="radiogroup" aria-label="Study type">
+      <button class="type on" role="radio" aria-checked="true" data-implant="reverse">Reverse</button>
+      <button class="type" role="radio" aria-checked="false" data-implant="pyc">Hemiarthroplasty</button>
+      <button class="type" role="radio" aria-checked="false" data-implant="native">Native</button>
     </div>
 
     <div id="drop" class="drop" tabindex="0" role="button" aria-label="Choose images">
-      <svg viewBox="0 0 48 48" width="44" height="44" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M24 31V9m0 0-8 8m8-8 8 8M8 31v6a3 3 0 0 0 3 3h26a3 3 0 0 0 3-3v-6"/></svg>
-      <p class="drop-title">Drop X-rays, a CT folder or a .zip here</p>
-      <p class="drop-sub">DICOM radiographs and CT series, or ordinary image files (PNG, JPEG). A whole CD or export folder is fine.</p>
+      <p class="drop-title">Drop DICOM files, a CT folder, a .zip or PNG/JPEG images</p>
       <div class="drop-actions">
         <button id="btn-files" class="btn primary">Choose files</button>
         <button id="btn-folder" class="btn">Choose folder</button>
@@ -55,24 +47,13 @@
       <input id="in-folder" type="file" webkitdirectory multiple hidden>
       <input id="in-files" type="file" multiple hidden>
     </div>
-    <p class="samples">No images to hand? Try a synthetic example:
-      <button class="link" data-sample="xray">X-ray</button> ·
-      <button class="link" data-sample="ct">CT</button>
-      <span class="fine">(computer-generated phantoms of the selected type — not patients)</span>
-    </p>
+    <p class="samples">Or open a synthetic example: <button class="link" data-sample="xray">X-ray</button> · <button class="link" data-sample="ct">CT</button></p>
 
     <div id="scan-status" class="scan-status" hidden>
       <div class="bar"><div id="scan-bar" class="bar-fill"></div></div>
       <p id="scan-label">Reading files…</p>
     </div>
     <div id="intro-error" class="alert error" hidden></div>
-
-    <ol class="steps">
-      <li><b>Anonymise.</b> Names, IDs, dates and every other identifying tag are discarded as each file is read. Only pixels and image geometry are kept — in memory, on this device.</li>
-      <li><b>Detect and confirm.</b> Metal implants are found automatically. Bony landmarks are yours to place or confirm: the software says which positions it only estimated.</li>
-      <li><b>Judge.</b> Each measurement is shown as a number, a colour against its published range, the source of that range, and how far the evidence behind it can be trusted.</li>
-    </ol>
-    <p class="fine">For audit, teaching and research. Not a medical device and not for diagnosis; the numbers depend on where the landmarks are put and on the quality of the view.</p>
   </section>
 
   <!-- ───────────── Workspace ───────────── -->
@@ -123,7 +104,7 @@
         <button role="tab" data-tab="measure">Measurements</button>
         <button role="tab" data-tab="muscle" hidden>Muscles</button>
         <button role="tab" data-tab="decision" hidden>Implant choice</button>
-        <button role="tab" data-tab="compare" hidden>Compare</button>
+        <button role="tab" data-tab="compare" hidden>Comparison</button>
         <button role="tab" data-tab="appraisal">Appraisal</button>
       </div>
 
@@ -151,7 +132,8 @@
         <div id="decision"></div>
       </div>
       <div class="card tabpane" id="tab-compare" hidden>
-        <div class="card-head"><h2>Compare with another film</h2></div>
+        <div class="card-head"><h2>Comparison</h2></div>
+        <input type="file" id="in-preop" multiple hidden>
         <div id="compare"></div>
       </div>
       <div class="card tabpane" id="tab-appraisal" hidden>

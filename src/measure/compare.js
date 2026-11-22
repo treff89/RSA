@@ -9,8 +9,9 @@
 //   4. glenoid height on both, no calibration           → percent of glenoid height
 // otherwise distances are not compared. Angles and Schippers' ratios need no scale.
 import { angleAt, signedDistToLine } from './geom.js';
-import { C, sub, dot, unit, dist, lateral, supInf, tiltVsFossa, hara, humeralLine, varusAngle, shaftAxis } from './protocols/xray-common.js';
+import { C, sub, dot, unit, dist, lateral, supInf, tiltVsFossa, hara, shara, humeralLine, varusAngle, shaftAxis } from './protocols/xray-common.js';
 import { schippers } from './protocols/pyc-ap.js';
+import { neutralise } from './neutral.js';
 
 const fmtSigned = (v, unit, d = 1) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(v).toFixed(d)}${unit === '°' ? '°' : unit === '%' ? '%' : ` ${unit}`}`;
 const fmtVal = (v, unit, d = 1) => `${v.toFixed(d)}${unit === '°' ? '°' : unit === '%' ? '%' : ` ${unit}`}`;
@@ -21,26 +22,30 @@ export function commonScale(e, c) {
   const H = [gh(e), gh(c)];
   const cal = [e, c].map((b) => (b.ctx.mm > 0 && b.ctx.mmSource === 'implant' ? b.ctx.mm : null));
   const any = [e, c].map((b) => (b.ctx.mm > 0 ? b.ctx.mm : null));
-  if (cal[0] && cal[1]) return { mode: 'implant', unit: 'mm', f: cal, text: 'Both films are calibrated by their implant: distances in millimetres.' };
+  if (cal[0] && cal[1]) return { mode: 'implant', unit: 'mm', f: cal, text: 'Distances in mm (both films calibrated by their implant).' };
   if ((cal[0] || cal[1]) && H[0] && H[1]) {
     const i = cal[0] ? 0 : 1, j = 1 - i;
     const f = [0, 0];
     f[i] = cal[i]; f[j] = (H[i] * cal[i]) / H[j];
-    return { mode: 'glenoid', unit: 'mm', f, text: `The ${i === 0 ? 'earlier' : 'current'} film is calibrated by its implant; the other is scaled so that its glenoid height (superior to inferior rim, ${(H[i] * cal[i]).toFixed(1)} mm) matches. Accurate to roughly the precision of the two glenoid rim points (about ±5%).` };
+    return { mode: 'glenoid', unit: 'mm', f, text: `Distances in mm: the ${i === 0 ? 'later' : 'earlier'} film is scaled to the calibrated one by glenoid height (±5%).` };
   }
   if (any[0] && any[1]) {
-    const note = any.some((m, k) => m && !cal[k]) ? ' At least one film uses its stored pixel spacing, which includes film magnification (typically 5–15%): small changes are within that error.' : '';
-    return { mode: 'pixel', unit: 'mm', f: any, text: `Distances in millimetres from each film's own scale.${note}` };
+    return { mode: 'pixel', unit: 'mm', f: any, text: 'Distances in mm from each film\'s pixel size (includes film magnification).' };
   }
-  if (H[0] && H[1]) return { mode: 'relative', unit: '% GH', f: [100 / H[0], 100 / H[1]], text: 'Neither film is calibrated: distances are given as a percentage of each film\'s glenoid height (superior to inferior rim). Enter the implant size to get millimetres.' };
-  return { mode: 'none', unit: '', f: null, text: 'The films have no common scale (no calibration and no glenoid rim points on both), so distances are not compared; angles and ratios are.' };
+  if (H[0] && H[1]) return { mode: 'relative', unit: '% GH', f: [100 / H[0], 100 / H[1]], text: 'Not calibrated: distances as % of glenoid height. Enter the implant size for mm.' };
+  return { mode: 'none', unit: '', f: null, text: 'No common scale: distances not compared.' };
 }
 
 // ── quantities, each computed on one film from its landmarks; null when not available ──
 const L = (b) => b.ctx.L;
-const cor = (b) => (L(b).gs ? C(L(b).gs) : null);   // reverse: centre of rotation
+// centre of rotation: the glenosphere centre of a reverse, the head centre otherwise
+const cor = (b) => (L(b).gs ? C(L(b).gs) : b.protocol.implant !== 'reverse' && L(b).head ? C(L(b).head) : null);
+const glenoid = (b) => (L(b).sgt && L(b).igr ? supInf({ a: L(b).sgt, b: L(b).igr }) : null);
 
 const Q = {
+  glo: { label: 'Global lateral offset (glenoid line → tuberosity)', kind: 'dist', f: (b) => { const g = glenoid(b); return g && L(b).gtl ? signedDistToLine(L(b).gtl, g.a, g.b, lateral(b.ctx)) : null; } },
+  dma: { label: 'Tuberosity to centre of rotation (deltoid moment arm)', kind: 'dist', f: (b) => { const c = cor(b); return c && L(b).gtl ? dist(c, L(b).gtl) : null; } },
+  deltL: { label: 'Acromion to deltoid tuberosity (deltoid length)', kind: 'dist', f: (b) => (L(b).acr && L(b).dtu ? dist(L(b).acr, L(b).dtu) : null) },
   atd: { label: 'Acromion–tuberosity distance', kind: 'dist', f: (b) => (L(b).acu && L(b).gts ? dist(L(b).acu, L(b).gts) : null) },
   gtLat: { label: 'Tuberosity lateral to acromion', kind: 'dist', f: (b) => (L(b).acr && L(b).gtl ? dot(sub(L(b).gtl, L(b).acr), lateral(b.ctx)) : null) },
   lsa: { label: 'Lateralisation shoulder angle (LSA)', kind: 'angle', f: (b) => (L(b).sgt && L(b).acr && L(b).gtl ? angleAt(L(b).sgt, L(b).acr, L(b).gtl) : null) },
@@ -174,6 +179,21 @@ function gradeSchippers(d, months, which) {
  */
 export function compareFilms(e, c, opts = {}) {
   const type = pairType(e, c);
+  // matching: the current film's humerus is turned about its centre of rotation to the earlier film's arm position
+  // (relative to the scapula when both films have the fossa line, else relative to the image vertical)
+  let match = null;
+  if (opts.match) {
+    const raw = (b) => (b.ctx.raw ? { ...b, ctx: b.ctx.raw } : b);
+    e = raw(e); c = raw(c);
+    const kind = e.ctx.L.ssf && c.ctx.L.ssf ? 'shara' : 'hara';
+    const want = kind === 'shara' ? shara(e.ctx) : hara(e.ctx);
+    if (!Number.isFinite(want)) match = { ok: false, reason: e.protocol.implant === 'native' ? 'Place the humeral shaft line on the earlier film to match the arm position.' : 'The earlier film\'s arm position could not be measured.' };
+    else {
+      const n = neutralise(c.protocol, c.ctx, { kind, deg: want });
+      match = n.ok ? { ok: true, kind, want, deg: n.deg, centre: n.centre, before: n.before } : { ok: false, reason: n.reason };
+      if (n.ok) c = { ...c, ctx: { ...c.ctx, L: n.L, raw: c.ctx, neutral: n } };
+    }
+  }
   const scale = commonScale(e, c);
   const rows = [];
   for (const [id, q] of Object.entries(Q)) {
@@ -190,7 +210,9 @@ export function compareFilms(e, c, opts = {}) {
     else if (GRADE[id] && GRADE[id][type] && (q.kind !== 'dist' || unitS === 'mm')) g = GRADE[id][type](d);
     let label = q.label;
     if (id === 'atd' && type === 'preop-reverse') label = 'Arm lengthening (acromion–tuberosity distance)';
-    if (id === 'gtLat' && type.startsWith('preop')) label = 'Humeral lateralisation (tuberosity lateral to acromion)';
+    if (id === 'gtLat' && type.startsWith('preop')) label = 'Tuberosity lateral to acromion';
+    if (id === 'corLat' && type === 'preop-reverse') label = 'Centre of rotation lateral to glenoid line';
+    if (id === 'corInf' && type === 'preop-reverse') label = 'Centre of rotation below glenoid centre';
     rows.push({
       id, label, unit: unitS, earlier: a, current: b, change: d,
       earlierText: fmtVal(a, unitS, q.kind === 'ratio' ? 0 : 1), currentText: fmtVal(b, unitS, q.kind === 'ratio' ? 0 : 1), changeText: fmtSigned(d, unitS, q.kind === 'ratio' ? 0 : 1),
@@ -212,23 +234,44 @@ export function compareFilms(e, c, opts = {}) {
   }
   const notes = [];
   const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
-  const bothNeutral = e.ctx.neutral && c.ctx.neutral && e.ctx.neutral.target === c.ctx.neutral.target;
+  // the acromiohumeral distance as reported around reverse arthroplasty: acromion to head before, acromion to tuberosity after
+  if (type === 'preop-reverse' && scale.f && L(e).acu && L(e).head && L(c).acu && L(c).gts) {
+    const a = (dist(L(e).acu, C(L(e).head)) - L(e).head.r) * scale.f[0], b = dist(L(c).acu, L(c).gts) * scale.f[1], dd = b - a;
+    rows.push({ id: 'ahdR', label: 'Acromiohumeral distance (before: to head; after: to tuberosity)', unit: scale.unit, earlier: a, current: b, change: dd,
+      earlierText: fmtVal(a, scale.unit), currentText: fmtVal(b, scale.unit), changeText: fmtSigned(dd, scale.unit), status: 'info',
+      say: 'About +22 mm on average after reverse arthroplasty (Rhee).' });
+  }
+  const ORDER = type === 'preop-reverse' ? ['dsa', 'lsa', 'atd', 'ahdR', 'glo', 'gtLat', 'dma', 'corLat', 'corInf', 'deltL', 'hara'] : null;
+  if (ORDER) {
+    const rank = (r) => (ORDER.includes(r.id) ? ORDER.indexOf(r.id) : 99);
+    rows.sort((x, y) => rank(x) - rank(y));
+    for (let i = rows.length - 1; i >= 0; i--) if (!ORDER.includes(rows[i].id)) rows.splice(i, 1);
+  }
+  const matched = match && match.ok;
+  if (match && !match.ok) notes.push(`Arm position not matched: ${match.reason}`);
+  const bothNeutral = !matched && e.ctx.neutral && c.ctx.neutral && e.ctx.neutral.target === c.ctx.neutral.target;
   if (bothNeutral) notes.push(`Both films are normalised to the same arm position (${e.ctx.neutral.target === 'scapula' ? 'relative to the scapula' : 'arm vertical'}): the humerus of each was rotated about its centre of rotation (${e.ctx.neutral.deg.toFixed(0)}° and ${c.ctx.neutral.deg.toFixed(0)}°), so differences in how the arm hung are removed from the other rows.`);
-  else if (e.ctx.neutral || c.ctx.neutral) notes.push('Only one of the two films could be normalised to a standard arm position, so posture differences are not removed. Place the missing landmark (stem, shaft line or fossa line) on the other film.');
-  if (!bothNeutral && byId.hara && Math.abs(byId.hara.change) > 10 && (byId.lsa || byId.dsa)) {
+  else if (!matched && (e.ctx.neutral || c.ctx.neutral)) notes.push('Only one of the two films could be normalised to a standard arm position, so posture differences are not removed. Place the missing landmark (stem, shaft line or fossa line) on the other film.');
+  if (!matched && !bothNeutral && byId.hara && Math.abs(byId.hara.change) > 10 && (byId.lsa || byId.dsa)) {
     notes.push(`The arm hangs ${Math.abs(byId.hara.change).toFixed(0)}° ${byId.hara.change > 0 ? 'more' : 'less'} abducted on the current film. Part of any change in LSA and DSA is posture, not surgery or migration: in every pair of consecutive films in one series the more abducted film had the higher LSA and the lower DSA.`);
   }
   if (type === 'other') notes.push('These films are of different study types (for example a hemiarthroplasty against a reverse); only quantities defined on both are listed and none is graded.');
   if (scale.mode === 'relative') notes.push('Changes in distances are expressed relative to glenoid height and are not graded; calibrate at least one film by its implant to grade them in millimetres.');
-  return { type, typeText: PAIR_TEXT[type], scale, rows, findings, notes };
+  return { type, typeText: PAIR_TEXT[type], scale, rows, findings, notes, match };
 }
 
 function describe(id, d, type, unitS) {
-  if (id === 'lsa') return d > 0 ? 'The humerus sits more laterally relative to the acromion and glenoid.' : 'The humerus sits more medially relative to the acromion and glenoid.';
-  if (id === 'dsa') return d > 0 ? 'The humerus sits lower (more distalised).' : 'The humerus sits higher (less distalised).';
-  if (id === 'gtLat') return type.startsWith('preop') ? 'Change in how far the tuberosity stands lateral to the acromion: the humeral lateralisation the operation achieved (about +5 mm on average after reverse arthroplasty in one series).' : 'Change in tuberosity position relative to the acromion.';
-  if (id === 'hara') return 'Difference in arm position between the films (+ = more abducted now).';
-  if (id === 'atd' && type === 'preop-hemi') return 'Change in acromion–tuberosity distance with the hemiarthroplasty.';
-  if (unitS === '% GH') return 'Change relative to glenoid height; not graded without a millimetre scale.';
-  return 'Recorded for comparison; no published threshold for this change.';
+  const up = d > 0;
+  switch (id) {
+    case 'lsa': return up ? 'Humerus more lateral.' : 'Humerus more medial.';
+    case 'dsa': return up ? 'Humerus lower.' : 'Humerus higher.';
+    case 'gtLat': return type.startsWith('preop') ? 'Humeral lateralisation (about +5 mm on average, Rhee).' : '';
+    case 'glo': return up ? 'Lateralised overall.' : 'Medialised overall.';
+    case 'dma': return up ? 'Longer deltoid lever arm.' : 'Shorter deltoid lever arm.';
+    case 'corLat': return up ? 'Centre of rotation lateralised.' : 'Centre of rotation medialised.';
+    case 'corInf': return up ? 'Centre of rotation lowered.' : 'Centre of rotation raised.';
+    case 'deltL': return up ? 'Deltoid lengthened.' : 'Deltoid shortened.';
+    case 'hara': return 'Arm position as taken (+ = more abducted now).';
+    default: return unitS === '% GH' ? 'Relative to glenoid height; not graded.' : '';
+  }
 }

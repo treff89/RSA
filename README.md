@@ -27,7 +27,11 @@ scapular tilt are not corrected, and on native and hemi films the acromiohumeral
 turns about its own centre). Native films need the humeral shaft line, found automatically when enough shaft is on the
 film. With both films normalised, the Compare tab compares them at the same arm position.
 
-**Compare with another film.** With two AP radiographs open, the *Compare* tab pairs them (earlier and current) and lists
+**Comparison.** On a reverse film, *Add pre-op X-ray* in the *Comparison* tab loads the pre-operative film (anonymised
+like the rest); the post-operative humerus is turned about the glenosphere centre to the pre-operative arm position
+(relative to the scapula when both films have the fossa line), and distalisation, lateralisation, acromiohumeral and
+acromion–tuberosity distances, global lateral offset, tuberosity-to-centre distance and centre-of-rotation shift are
+listed before and after. With two films of the same implant, the tab pairs them (earlier and current) and lists
 what changed: arm lengthening and humeral lateralisation from a pre-operative film; on follow-up, the acromion–tuberosity
 distance (a rise suggests acromial fracture), stem subsidence relative to the tuberosity, glenosphere tilt and centre of
 rotation (baseplate shift), stem tilt, Schippers' medialisation and upward migration (graded per month when you enter the
@@ -88,19 +92,23 @@ analysed as that type. On a radiograph **every landmark is placed automatically*
 ### How well does it work? Candidly:
 
 Measured on a development corpus of about 750 openly available radiographs (journal figures, a shoulder surgeon's
-teaching blog, an open dataset — kept out of this repository), 66 of them with landmarks annotated by hand:
+teaching blog, an open dataset — kept out of this repository), 145 of them with landmarks annotated by hand. The
+figures below are **held out**: each film was placed by a model that had not been trained on it (two-fold split of the
+75 most recently annotated films), running the whole pipeline. Errors are fractions of the glenosphere radius
+(about 19 mm), median and 75th percentile.
 
-* **Glenosphere**: found on about two thirds of reverse films; when found, its centre is within 0.1 radius
-  (about 2 mm) of the annotated position and its face within 3° (median).
-* **Bony landmarks on reverse films** (leave-one-out, so each film was placed by a model that had not seen it;
-  errors as a fraction of the glenosphere radius, about 19 mm): superior glenoid tubercle 0.3, inferior rim 0.3,
-  acromion undersurface 0.3, acromion tip 0.4, top of the tuberosity 0.4, lateral tuberosity 0.6 — that is,
-  typically 5–12 mm. That is a useful head start, **not** a measurement: LSA and DSA from untouched automatic
-  landmarks still differ from the hand-placed values by a median of about 10–15°.
-* **Hemiarthroplasty / anatomic films**: the model was learned from only 8 annotated films; expect more correction.
-* Computing LSA and DSA from the annotated landmarks reproduces the values printed in the source articles to within
-  about 1–2° (for example LSA 86.9° against 87°, DSA 58.8° against 60°), which checks the measurement definitions.
-* No real CT has been tested.
+* **Glenosphere**: centre within 0.03 R (median) when found.
+* **Reverse bony landmarks**: acromion undersurface 0.19 (75th 1.3), inferior glenoid rim 0.20 (0.44), superior
+  tubercle 0.35 (0.77), top of the tuberosity 0.49 (0.88), acromion tip 0.53 (1.6), lateral tuberosity 0.54 (1.0).
+  The long tail is mostly films where the glenosphere's back face is misread by 10–40°, which swings everything on the
+  scapula; correcting the face re-places them. Treat them as a head start to check, not as measurements.
+* **Native shoulders**: the humeral head is found within about 0.1 head radius on the annotated native films (it was
+  usually missed before the radius range was widened). The native landmark model was learned from all 30 annotated
+  native films, so no held-out figure exists for it yet.
+* **Canal lines** come from tracing both cortices along the whole stem (median-filtered, robust fit), and the stem
+  widths are measured on the metal; they have not been checked against hand-placed canal lines.
+* Computing LSA and DSA from annotated landmarks reproduces the values printed in the source articles to within
+  about 1–2°, which checks the measurement definitions. No real CT has been tested.
 
 ## How the numbers are judged
 

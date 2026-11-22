@@ -989,12 +989,12 @@ function discMedian(ctx, cx, cy, r0, r1, skipMetal, M) {
 }
 
 function headInfo(ctx, opts = {}) {
-  const key = `head:${opts.mmPerPx || ctx.mmPerPx || 0}:${opts.rRange || ''}`;
+  const key = `head:${opts.mmPerPx || ctx.mmPerPx || 0}:${opts.rRange || ''}:${opts.frLo || ''}:${opts.frHi || ''}`;
   if (ctx[key] !== undefined) return ctx[key];
   const M = metalInfo(ctx);
   const { f, w, h } = ctx;
   const g = gradients(ctx);
-  const [rmin, rmax] = radiusRange(ctx, opts, 17, 32, 0.04, 0.14);
+  const [rmin, rmax] = radiusRange(ctx, opts, 17, 32, opts.frLo ?? 0.04, opts.frHi ?? 0.14);
   const res = (ctx[key] = { result: null, stemLike: false });
   let stemBody = null, bodiesInfo = null;
   if (M.present) {

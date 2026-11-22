@@ -32,7 +32,7 @@ export function rotationCentre(protocol, L) {
   return L.head ? C(L.head) : null;
 }
 
-const rot = (c, cos, sin) => (p) => ({ x: c.x + (p.x - c.x) * cos - (p.y - c.y) * sin, y: c.y + (p.x - c.x) * sin + (p.y - c.y) * cos });
+export const rot = (c, cos, sin) => (p) => ({ x: c.x + (p.x - c.x) * cos - (p.y - c.y) * sin, y: c.y + (p.x - c.x) * sin + (p.y - c.y) * cos });
 
 /** Rotate the humeral landmarks of L by deg (image coordinates, y down: + is clockwise on screen) about c. */
 export function rotateHumerus(L, c, deg) {
@@ -53,24 +53,30 @@ export function rotateHumerus(L, c, deg) {
 export function neutralise(protocol, ctx, target = 'vertical') {
   if (protocol.modality !== 'xray' || protocol.view !== 'ap') return { ok: false, reason: 'Only AP radiographs can be normalised.' };
   const c = rotationCentre(protocol, ctx.L);
-  if (!c) return { ok: false, reason: protocol.implant === 'reverse' ? 'Needs the glenosphere outline (the centre of rotation).' : 'Needs the humeral head outline (the centre of rotation).' };
+  if (!c) return { ok: false, reason: protocol.implant === 'reverse' ? 'Needs the glenosphere outline.' : 'Needs the humeral head outline.' };
   const h = humeralLine(ctx);
-  if (!h) return { ok: false, reason: protocol.implant === 'native' ? 'Needs the humeral shaft centre line (Landmarks → Humeral shaft centre line).' : 'Needs the stem axis or the canal lines.' };
-  let before, want;
-  if (target === 'scapula') {
-    if (!ctx.L.ssf) return { ok: false, reason: 'The scapula-referenced position needs the supraspinatus fossa line.' };
-    before = shara(ctx); want = SHARA_NEUTRAL;
-  } else { before = hara(ctx); want = 0; }
+  if (!h) return { ok: false, reason: protocol.implant === 'native' ? 'Needs the humeral shaft line.' : 'Needs the stem axis.' };
+  // target: 'vertical' | 'scapula' | { kind: 'hara' | 'shara', deg } (matching another film)
+  const kind = typeof target === 'object' ? target.kind : target === 'scapula' ? 'shara' : 'hara';
+  const want = typeof target === 'object' ? target.deg : target === 'scapula' ? SHARA_NEUTRAL : 0;
+  if (kind === 'shara' && !ctx.L.ssf) return { ok: false, reason: 'Needs the supraspinatus fossa line.' };
+  const before = kind === 'shara' ? shara(ctx) : hara(ctx);
   if (!Number.isFinite(before)) return { ok: false, reason: 'The arm position could not be measured.' };
   // abduction (distal humerus towards the lateral side) is removed by turning the distal end medially
   // (image axes, y down: a positive angle turns the distal end from +x towards −x)
   const deg = (before - want) * (ctx.lateralSign || 1);
-  return { ok: true, L: rotateHumerus(ctx.L, c, deg), deg, centre: c, before, want, target, from: h.from };
+  return { ok: true, L: rotateHumerus(ctx.L, c, deg), deg, centre: c, before, want, kind, target: typeof target === 'object' ? 'match' : target, from: h.from };
 }
 
 /** One-line description for the appraisal and report. */
 export function neutralNote(n, protocol) {
-  const what = n.target === 'scapula' ? `SHARA ${n.before.toFixed(0)}° → ${SHARA_NEUTRAL}°` : `HARA ${n.before.toFixed(0)}° → 0°`;
+  const what = `${n.kind === 'shara' ? 'SHARA' : 'HARA'} ${n.before.toFixed(0)}° → ${n.want.toFixed(0)}°`;
   const ahd = protocol.implant === 'reverse' ? '' : ' The acromiohumeral distance is unchanged by construction (the head turns about its own centre).';
   return `Arm position normalised: the humerus (with its implant) was rotated ${Math.abs(n.deg).toFixed(1)}° about the centre of rotation (${what}) before measuring; the landmarks shown are as placed on the film. This is a rigid in-plane rotation: it does not correct humeral rotation, flexion, or scapular tilt out of the film plane.${ahd}`;
+}
+
+/** Rotate polylines of [x, y] points about c by deg (as rotateHumerus). */
+export function rotatePolylines(lines, c, deg) {
+  const a = deg * Math.PI / 180, R = rot(c, Math.cos(a), Math.sin(a));
+  return lines.map((l) => l.map(([x, y]) => { const q = R({ x, y }); return { x: q.x, y: q.y }; }));
 }

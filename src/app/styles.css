@@ -50,13 +50,7 @@ button, input, select { font: inherit; color: inherit; }
 .brand-name { font-weight: 700; font-size: 18px; letter-spacing: .2px; }
 .tagline { color: var(--muted); font-size: 14px; }
 .spacer { flex: 1; }
-.privacy-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 13px; color: var(--ok);
-  border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent);
-  background: color-mix(in srgb, var(--ok) 10%, transparent);
-  padding: 4px 10px; border-radius: 999px; cursor: help; white-space: nowrap;
-}
+.privacy-pill { font-size: 12.5px; color: var(--muted); cursor: help; white-space: nowrap; }
 
 /* ── buttons ────────────────────────────── */
 .btn {
@@ -85,21 +79,20 @@ button, input, select { font: inherit; color: inherit; }
 
 /* ── intro ──────────────────────────────── */
 main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-#intro { max-width: 860px; width: 100%; margin: 0 auto; padding: 44px 20px 30px; }
-.hero h1 { font-size: clamp(28px, 4.6vw, 44px); line-height: 1.12; letter-spacing: -.5px; }
-.lede { color: var(--muted); font-size: 18px; margin-top: 12px; max-width: 46em; }
+#intro { max-width: 720px; width: 100%; margin: 0 auto; padding: 56px 20px 30px; }
+#intro h1 { font-size: 24px; font-weight: 600; line-height: 1.25; }
+.lede { color: var(--muted); font-size: 15px; margin-top: 10px; max-width: 46em; }
 .drop {
-  margin-top: 28px; padding: 40px 20px 34px;
-  border: 2px dashed #3a4656; border-radius: 18px; background: var(--bg-2);
+  margin-top: 18px; padding: 26px 18px;
+  border: 1px dashed #4a5566; border-radius: 6px; background: transparent;
   text-align: center; color: var(--muted); cursor: pointer;
-  transition: border-color .12s, background .12s;
 }
 .drop:hover, .drop.over { border-color: var(--accent); background: #1a1f27; }
-.drop.over { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
+
 .drop svg { color: var(--accent); }
-.drop-title { color: var(--text); font-size: 19px; font-weight: 650; margin-top: 8px; }
+.drop-title { color: var(--text); font-size: 15px; }
 .drop-sub { margin-top: 4px; }
-.drop-actions { margin-top: 18px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.drop-actions { margin-top: 14px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .scan-status { margin-top: 18px; color: var(--muted); }
 .scan-status p { margin-top: 8px; font-size: 14px; }
 .steps { margin: 34px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; counter-reset: s; }
@@ -128,7 +121,7 @@ main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 }
 
 /* ── workspace layout ───────────────────── */
-#workspace { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 430px; min-height: 0; }
+#workspace { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) clamp(440px, 36vw, 560px); min-height: 0; }
 .stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .viewer {
   position: relative; flex: 1; min-height: 360px;
@@ -223,15 +216,16 @@ body.working { height: 100vh; overflow: hidden; }
 }
 
 /* ══════════════ RSA Check additions ══════════════ */
-#intro { max-width: 940px; }
-.types { margin-top: 26px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.type { text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 15px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13.5px; }
-.type b { color: var(--text); font-size: 15.5px; }
-.type:hover { border-color: #4a586b; }
-.type.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--card)); box-shadow: 0 0 0 1px var(--accent) inset; }
+
+.types { margin-top: 24px; display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.type { background: transparent; border: 0; border-right: 1px solid var(--line); padding: 8px 16px; cursor: pointer; color: var(--muted); font-size: 14px; }
+.type:last-child { border-right: 0; }
+
+.type:hover { color: var(--text); }
+.type.on { background: var(--card); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
 .type:focus-visible, .tbtn:focus-visible, .tabs button:focus-visible, .item:focus-visible, .lm-main:focus-visible, .mini:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .drop { margin-top: 16px; }
-.samples { margin-top: 12px; color: var(--muted); font-size: 14px; }
+.samples { margin-top: 10px; color: var(--muted); font-size: 13.5px; }
 .samples .link { font-size: 14px; }
 
 /* toolbar above the viewer */
@@ -404,6 +398,11 @@ body.working { height: 100vh; overflow: hidden; }
 .factors .rev .pts { color: var(--err); } .factors .ana .pts { color: var(--ok); }
 
 /* comparison */
+.cmp-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin-bottom: 8px; }
+.cmp-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--muted); }
+.cmp-form input[type=number] { width: 80px; }
+.cmp-match { font-size: 13px; color: #c79bff; margin: 4px 0; }
+.cmp-src { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
 .alert.warn { background: color-mix(in srgb, var(--warn) 10%, var(--bg)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); color: #f5e2b0; margin-top: 8px; font-size: 13px; }
 .cmp { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12.8px; color: #c6ced8; }
 .cmp th { text-align: right; font-weight: 600; color: var(--faint); font-size: 11.5px; padding: 4px; }
@@ -422,7 +421,7 @@ body.working { height: 100vh; overflow: hidden; }
 .mu-where { font-size: 12px; color: var(--faint); }
 .mu-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
-@media (max-width: 1100px) { #workspace { grid-template-columns: minmax(0, 1fr) 380px; } }
+@media (max-width: 1100px) { #workspace { grid-template-columns: minmax(0, 1fr) 420px; } }
 @media (max-width: 900px) {
   #workspace { grid-template-columns: 1fr; }
   .types { grid-template-columns: 1fr; }

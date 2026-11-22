@@ -3,6 +3,7 @@
 import * as xdet from './xray.js';
 import { autoLandmarks, nativeLandmarks } from './auto.js';
 import { findShaft } from './shaft.js';
+import { traceCortex } from './cortex.js';
 import { frames as learnedFrames, placeLearned } from './learned.js';
 import MODEL from './model.json' with { type: 'json' };
 
@@ -21,9 +22,25 @@ export function detectXray(image, opts = {}) {
     const implant = opts.implant === 'reverse' ? 'reverse' : opts.implant === 'native' ? 'native' : opts.implant ? 'hemi' : undefined;
     out.implant = opts.implant || null;
     const a = implant === 'native' ? null : autoLandmarks(img, { mmPerPx, implant, axisMode: opts.axisMode, headFinder: (im) => xdet.detectHead(im) });
-    if (a) return strip({ ...out, ...a });
+    if (a) {
+      // cortices traced along the stem: canal widths, and the bone outline shown when the arm is normalised
+      try {
+        const R = a.reverse ? a.reverse.glenosphere.r : a.head ? a.head.r : 0;
+        if (a.stem && R > 0) {
+          const tr = traceCortex(img, a.stem, R, { metal: true, levels: { canalM: 0.3, canalD: 0.85 } });
+          if (tr) {
+            const pid = a.reverse ? 'rsa-ap' : 'pyc-ap';
+            const est = (a.estimates && a.estimates[pid]) || {};
+            for (const [id, l] of Object.entries(tr.canal)) est[id] = l;
+            a.humerus = { outline: tr.outline, metal: tr.metal };
+          }
+        }
+      } catch { /* canal lines stay as estimated */ }
+      return strip({ ...out, ...a });
+    }
     // no implant: native shoulder
-    const head = xdet.detectHead(img);
+    // native heads fill anything from a tenth (whole shoulder film) to a third (tight crop) of the short side
+    const head = xdet.detectHead(img, { mmPerPx, frLo: 0.06, frHi: 0.34 });
     if (head) {
       out.kind = 'native'; out.confidence = 0.3 + 0.5 * (head.score || 0); out.head = head;
       // lateral is the side of the head with less bone and tissue beyond it
@@ -36,7 +53,14 @@ export function detectXray(image, opts = {}) {
         const F = MODEL.types && MODEL.types.native ? learnedFrames({ centre: [head.cx, head.cy], r: head.r }, L) : null;
         if (F) Object.assign(out.estimates['native-ap'], placeLearned(img, F, MODEL.types.native));
       } catch { /* keep the hand-written estimates */ }
-      try { const sh = findShaft(img, head); if (sh) out.estimates['native-ap'].hcl = { a: sh.a, b: sh.b, confidence: sh.confidence }; } catch { /* no shaft line: placed by hand */ }
+      try {
+        const sh = findShaft(img, head);
+        if (sh) {
+          out.estimates['native-ap'].hcl = { a: sh.a, b: sh.b, confidence: sh.confidence };
+          const tr = traceCortex(img, { a: sh.a, b: sh.b }, head.r, { metal: false, from: 0, to: 1 });
+          if (tr) out.humerus = { outline: tr.outline, metal: [[], []] };
+        }
+      } catch { /* no shaft line: placed by hand */ }
     }
   } catch (e) {
     out.error = 'Automatic detection failed on this image; place the landmarks by hand.';

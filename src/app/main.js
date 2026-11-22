@@ -8,7 +8,7 @@ import { evaluate, evaluateFindings, appraise } from '../measure/core.js';
 import { circleFrom3, v3, scapularFrame } from '../measure/geom.js';
 import { anatomicVsReverse } from '../measure/decision.js';
 import { compareFilms } from '../measure/compare.js';
-import { neutralise, neutralNote, TARGETS, HUMERAL } from '../measure/neutral.js';
+import { neutralise, neutralNote, HUMERAL, rotatePolylines, rotateHumerus } from '../measure/neutral.js';
 import { seedXray, lateralSignOf, ssfPrior } from '../measure/seed.js';
 import { frames as learnedFrames, placeLearned } from '../detect/learned.js';
 import MODEL from '../detect/model.json' with { type: 'json' };
@@ -61,7 +61,7 @@ const typeOf = (item = cur()) => (item && item.implant) || state.implant;
 worker.onmessage = (e) => {
   const m = e.data;
   if (m.type === 'progress') onProgress(m);
-  else if (m.type === 'scanned') onScanned(m.result);
+  else if (m.type === 'scanned') onScanned(m.result, m.append);
   else if (m.type === 'xray') onXray(m);
   else if (m.type === 'ct') onCt(m);
   else if (m.type === 'detected') onDetected(m);
@@ -71,6 +71,7 @@ worker.onerror = (e) => onError({ scope: 'worker', message: e.message || 'Unexpe
 
 function onProgress(m) {
   const pct = `${Math.round(Math.max(0, Math.min(1, m.fraction || 0)) * 100)}%`;
+  if (m.scope === 'scan' && !$('workspace').hidden) m = { ...m, scope: 'load' };
   if (m.scope === 'scan') {
     $('scan-status').hidden = false; $('scan-bar').style.width = pct; $('scan-label').textContent = m.label || 'Reading and anonymising files…';
   } else {
@@ -92,24 +93,32 @@ function onError(m) {
   }
 }
 
-function onScanned(result) {
+function onScanned(result, append = false) {
   $('scan-status').hidden = true;
-  state.report = result.report;
-  state.items = []; state.cur = -1; state.queue = [];
-  let n = 0;
+  if (append && state.report) {
+    // a later batch (e.g. the pre-operative film): one combined anonymisation record
+    const a = state.report, r = result.report;
+    state.report = { ...a, filesScanned: a.filesScanned + r.filesScanned, totalElementsDiscarded: a.totalElementsDiscarded + r.totalElementsDiscarded,
+      identifiersFound: [...(a.identifiersFound || []), ...(r.identifiersFound || [])], burnedInRisk: (a.burnedInRisk || 0) + (r.burnedInRisk || 0) };
+  } else state.report = result.report;
+  if (!append) { state.items = []; state.cur = -1; state.queue = []; }
+  const role = append ? state.addRole : null;
+  state.addRole = null;
+  let n = append ? state.items.length : 0;
   for (const r of result.radiographs) {
     if (!r.supported) continue;
     const bits = [r.viewPosition, r.laterality, r.description].filter(Boolean).join(' ');
-    state.queue.push({ type: 'xray', id: r.id, name: `X-ray ${++n}${bits ? ` · ${bits}` : ''}` });
+    state.queue.push({ type: 'xray', id: r.id, role, name: role === 'preop' ? `Pre-op ${bits ? `· ${bits}` : ''}`.trim() : `X-ray ${++n}${bits ? ` · ${bits}` : ''}` });
   }
-  for (const r of result.rasters) state.queue.push({ type: 'xray', id: r.id, name: `Image ${++n}` });
+  for (const r of result.rasters) state.queue.push({ type: 'xray', id: r.id, role, name: role === 'preop' ? 'Pre-op' : `Image ${++n}` });
   if (result.ct) {
     const pick = result.ct.series.find((s) => s.id === result.ct.recommendedId) || result.ct.series.find((s) => s.supported);
     if (pick) state.queue.push({ type: 'ct', seriesId: pick.id, name: `CT${pick.description ? ` · ${pick.description}` : ''}` });
     state.ctSeries = result.ct.series;
   }
-  if (!state.queue.length) { onError({ scope: 'scan', message: 'The files were read, but none of the images can be decoded here (unsupported compression).' }); return; }
+  if (!state.queue.length) { onError({ scope: append ? 'load' : 'scan', message: 'The files were read, but none of the images can be decoded here (unsupported compression).' }); return; }
   showWorkspace();
+  if (append) state.selectNew = true;
   loadNext();
 }
 
@@ -118,8 +127,9 @@ function loadNext() {
   if (!q) { $('progress').hidden = true; return; }
   state.loadingName = q.name;
   onProgress({ scope: 'load', fraction: 0.05, label: `Opening ${q.name}…` });
-  state.loadingImplant = state.implant;
-  worker.postMessage(q.type === 'ct' ? { type: 'ct', seriesId: q.seriesId } : { type: 'xray', id: q.id, implant: state.implant });
+  state.loadingImplant = q.role === 'preop' ? 'native' : state.implant;
+  state.loadingRole = q.role || null;
+  worker.postMessage(q.type === 'ct' ? { type: 'ct', seriesId: q.seriesId } : { type: 'xray', id: q.id, implant: state.loadingImplant });
   renderItems();
 }
 
@@ -127,7 +137,7 @@ function onXray(m) {
   const det = m.det || {};
   const lat = m.image.meta && m.image.meta.laterality;
   const item = {
-    uid: ++state.seq, implant: state.loadingImplant || state.implant, kind: 'xray', name: m.sample ? 'Synthetic X-ray' : state.loadingName || 'X-ray', image: m.image, det, sample: !!m.sample,
+    uid: ++state.seq, implant: state.loadingImplant || state.implant, role: state.loadingRole || null, kind: 'xray', name: m.sample ? 'Synthetic X-ray' : state.loadingName || 'X-ray', image: m.image, det, sample: !!m.sample,
     view: /AX/i.test((m.image.meta && m.image.meta.viewPosition) || '') ? 'axillary' : 'ap',
     lateralSign: lateralSignOf(det, lat),
     calib: { size: null }, lm: {}, findings: {}, rimAngle: {}, truth: m.truth || null,
@@ -147,7 +157,14 @@ function addItem(item) {
   state.loadingName = null;
   $('progress').hidden = true;
   state.items.push(item);
-  if (state.cur < 0) {
+  if (state.selectNew && item.role === 'preop') {
+    // the pre-operative film was added from the Comparison tab: pair it and stay on the post-operative film
+    state.selectNew = false;
+    const post = cur();
+    if (post) { post.compareWith = item.uid; post.compareOrder = 'thisLater'; }
+    renderItems(); refresh();
+    toast('Pre-op film added — check its landmarks on its own tab.');
+  } else if (state.cur < 0) {
     // First image: if the detector is confident the study type is different from the one picked, follow it.
     // Only a positively identified implant changes the type: "no implant found" may simply be a missed detection.
     // the reader chooses the study type; the image is analysed as that type (see redetect on a change of type)
@@ -281,16 +298,24 @@ function decision() {
 const comparable = (item) => item.kind === 'xray' && item.view === 'ap';
 function compareCandidates(item) { return state.items.filter((x) => x !== item && comparable(x)); }
 
-/** The comparison shown for an item: the chosen other film (default: the one before it), in the chosen order. */
+const isPreop = (x) => x.role === 'preop' || typeOf(x) === 'native';
+
+/**
+ * The comparison shown for an item. A reverse film is compared with the pre-operative film by default; the later
+ * film's humerus is turned to the earlier film's arm position before anything is measured.
+ */
 function comparisonFor(item) {
   if (!comparable(item)) return null;
   const others = compareCandidates(item);
   if (!others.length) return null;
-  const other = others.find((x) => x.uid === item.compareWith) || others.filter((x) => state.items.indexOf(x) < state.items.indexOf(item)).pop() || others[0];
-  const thisLater = item.compareOrder !== 'thisEarlier';
+  const before = others.filter((x) => state.items.indexOf(x) < state.items.indexOf(item));
+  const other = others.find((x) => x.uid === item.compareWith)
+    || (typeOf(item) === 'reverse' && others.find(isPreop)) || before.pop() || others[0];
+  const preop = isPreop(other) && !isPreop(item);
+  const thisLater = preop || item.compareOrder !== 'thisEarlier';
   const [e, c] = thisLater ? [other, item] : [item, other];
-  const res = compareFilms(assess(e), assess(c), { months: item.compareMonths > 0 ? item.compareMonths : null });
-  return { ...res, other, earlierName: e.name, currentName: c.name, thisLater, months: item.compareMonths || '' };
+  const res = compareFilms(assess(e), assess(c), { months: item.compareMonths > 0 ? item.compareMonths : null, match: true });
+  return { ...res, other, preop, earlierName: e.name, currentName: c.name, thisLater, months: item.compareMonths || '' };
 }
 
 /** Comparisons the reader asked for (opened the Compare tab on), for the report. */
@@ -320,9 +345,19 @@ function xrayOverlay(item, b) {
       handles.push({ key: `${lm.id}.r`, x: v.cx + v.r * Math.cos(ang), y: v.cy + v.r * Math.sin(ang), color, dashed, small: true });
     }
   }
-  if (b.ctx.neutral) {
-    // the humerus as measured: rotated about the centre of rotation to the standard arm position
-    const G = '#c79bff', V = b.ctx.L, n = b.ctx.neutral;
+  // the humerus as measured, when it has been turned: by the arm-position setting, or to match the pre-op film
+  let ghost = b.ctx.neutral ? { n: b.ctx.neutral, V: b.ctx.L, label: `${Math.abs(b.ctx.neutral.deg).toFixed(0)}°` } : null;
+  if (state.tab === 'compare') {
+    const cmp = comparisonFor(item);
+    ghost = cmp && cmp.thisLater && cmp.match && cmp.match.ok
+      ? { n: cmp.match, V: rotateHumerus(set.values, cmp.match.centre, cmp.match.deg), label: `${Math.abs(cmp.match.deg).toFixed(0)}° to pre-op` } : null;
+  }
+  if (ghost) {
+    const G = '#c79bff', { n, V } = ghost;
+    const hum = item.det && item.det.humerus;
+    if (hum) {
+      for (const pl of rotatePolylines([...(hum.outline || []), ...(hum.metal || [])], n.centre, n.deg)) if (pl.length > 1) shapes.push({ type: 'poly', pts: pl, closed: false, color: G, width: 2.2, alpha: 0.95 });
+    }
     for (const lm of p.landmarks) {
       const v = V[lm.id];
       if (!v || !HUMERAL.has(lm.id) || lm.id === 'head') continue;
@@ -332,7 +367,7 @@ function xrayOverlay(item, b) {
     const id = V.stem ? 'stem' : V.hcl ? 'hcl' : null;
     if (id && set.values[id]) {
       const far = (l) => (Math.hypot(l.a.x - n.centre.x, l.a.y - n.centre.y) > Math.hypot(l.b.x - n.centre.x, l.b.y - n.centre.y) ? l.a : l.b);
-      shapes.push({ type: 'line', a: far(set.values[id]), b: far(V[id]), color: G, width: 1.4, dash: true, alpha: 1, label: `${Math.abs(n.deg).toFixed(0)}° to ${state.neutral === 'scapula' ? 'scapular neutral' : 'vertical'}` });
+      shapes.push({ type: 'line', a: far(set.values[id]), b: far(V[id]), color: G, width: 1.4, dash: true, alpha: 1, label: ghost.label });
     }
   }
   if (state.showLines) {
@@ -672,7 +707,7 @@ function select(i) {
     $('view').value = item.view;
     if (state.tab === 'muscle') state.tab = 'landmarks';
   }
-  if (state.tab === 'compare' && (!comparable(item) || !compareCandidates(item).length)) state.tab = 'landmarks';
+  if (state.tab === 'compare' && (!comparable(item) || (!compareCandidates(item).length && typeOf(item) !== 'reverse'))) state.tab = 'landmarks';
   refresh();
 }
 
@@ -723,19 +758,15 @@ function renderStudy(item, b) {
   if (item.kind === 'xray') {
     if (cal) {
       const known = cal.sizes.includes(item.calib.size);
-      html += `<div class="calib-row"><label for="cal-size">${panel.esc(cal.label)}</label>
+      html += `<div class="calib-row"><label for="cal-size" title="${panel.esc(cal.hint)}">${panel.esc(cal.label)}</label>
         <select id="cal-size"><option value="">Unknown</option>${cal.sizes.map((s) => `<option value="${s}"${item.calib.size === s ? ' selected' : ''}>${s} mm</option>`).join('')}<option value="other"${item.calib.size && !known ? ' selected' : ''}>Other…</option></select>
-        ${item.calib.size && !known ? `<input id="cal-custom" type="number" min="20" max="70" step="0.5" value="${item.calib.size}"> mm` : ''}</div>
-        <span class="help">${panel.esc(cal.hint)}</span>`;
+        ${item.calib.size && !known ? `<input id="cal-custom" type="number" min="20" max="70" step="0.5" value="${item.calib.size}"> mm` : ''}</div>`;
     }
     if (b.protocol.view === 'ap') {
       const n = b.neutral;
       const btn = (v, t) => `<button data-neutral="${v}" class="${state.neutral === v ? 'on' : ''}">${t}</button>`;
       html += `<div class="calib-row neutral-row"><span class="lbl">Arm position</span><div class="seg" role="group" aria-label="Arm position normalisation">${btn('off', 'As taken')}${btn('vertical', 'Arm vertical')}${btn('scapula', 'To scapula')}</div></div>
-        <span class="help">${state.neutral === 'off'
-          ? 'Measured as the film was taken. Choose a standard arm position to rotate the humerus (with its implant) about the centre of rotation before measuring, so films taken in different abduction are comparable.'
-          : n && n.ok ? `Measured with the humerus rotated <b>${Math.abs(n.deg).toFixed(1)}°</b> about the centre of rotation (${state.neutral === 'scapula' ? `SHARA ${n.before.toFixed(0)}° → ${n.want}°` : `HARA ${n.before.toFixed(0)}° → 0°`}); the purple outline shows the humerus as measured. Your landmarks are not moved.`
-            : `Not normalised: ${panel.esc(n ? n.reason : '')}`}</span>`;
+        ${state.neutral === 'off' ? '' : `<span class="help">${n && n.ok ? `Humerus turned <b>${Math.abs(n.deg).toFixed(1)}°</b> about the centre of rotation (${n.kind === 'shara' ? 'SHARA' : 'HARA'} ${n.before.toFixed(0)}° → ${n.want.toFixed(0)}°); purple outline.` : `Not normalised: ${panel.esc(n ? n.reason : '')}`}</span>`}`;
     }
     html += b.scale.mm
       ? `<span class="scale">Scale: <b>${panel.esc(b.scale.text)}</b>${b.scale.source === 'dicom' && !item.sample ? ' — includes film magnification' : ''}</span>`
@@ -761,7 +792,7 @@ function renderTabs(b) {
   for (const t of tabs) {
     if (t.dataset.tab === 'muscle') t.hidden = item.kind !== 'ct';
     if (t.dataset.tab === 'decision') t.hidden = typeOf(item) !== 'native';
-    if (t.dataset.tab === 'compare') t.hidden = !comparable(item) || !compareCandidates(item).length;
+    if (t.dataset.tab === 'compare') t.hidden = !comparable(item) || (!compareCandidates(item).length && typeOf(item) !== 'reverse');
     t.classList.toggle('on', t.dataset.tab === state.tab);
     if (t.dataset.tab === 'measure') {
       const c = b.appraisal.counts;
@@ -802,11 +833,9 @@ function renderPanel(b) {
   } else if (state.tab === 'compare') {
     const cmp = comparisonFor(item);
     if (cmp && item.compareWith === undefined) item.compareWith = cmp.other.uid;
-    $('compare').innerHTML = cmp ? panel.compareView(cmp, compareCandidates(item)) : '<p class="note">Comparison needs a second AP radiograph in the study. Open both films together (select or drop them at once).</p>';
+    $('compare').innerHTML = panel.compareView(cmp, compareCandidates(item), typeOf(item) === 'reverse');
   } else if (state.tab === 'appraisal') {
     let html = panel.appraisalView(b.appraisal);
-    const others = state.items.filter((x) => x !== item);
-    if (others.length) html += `<p class="note">This appraisal covers the image on screen (${panel.esc(item.name)}). The exported report covers all ${state.items.length} images.</p>`;
     $('appraisal').innerHTML = html;
     panel.applyGeometry($('tab-appraisal'));
   }
@@ -907,6 +936,14 @@ async function filesFromDrop(dt) {
   return out;
 }
 
+/** Add images to the open study (the pre-operative film for the Comparison tab). */
+function addFiles(files, role) {
+  if (!files || !files.length) return;
+  state.addRole = role;
+  onProgress({ scope: 'scan', fraction: 0, label: 'Reading and anonymising files…' });
+  worker.postMessage({ type: 'scan', files: [...files], append: true });
+}
+
 function open(files) {
   if (!files || !files.length) return;
   $('intro-error').hidden = true;
@@ -945,6 +982,8 @@ function setImplant(id, lock = true) {
 function bind() {
   for (const t of document.querySelectorAll('.type')) t.addEventListener('click', () => setImplant(t.dataset.implant));
   $('implant').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setImplant(b.dataset.implant); });
+  document.querySelector('.panel').addEventListener('click', (e) => { if (e.target.closest('[data-act="add-preop"]')) $('in-preop').click(); });
+  $('in-preop').addEventListener('change', (e) => { addFiles(e.target.files, 'preop'); e.target.value = ''; });
   $('calib').addEventListener('click', (e) => { const b = e.target.closest('[data-neutral]'); if (b) { state.neutral = b.dataset.neutral; refresh(); } });
   const drop = $('drop');
   $('btn-files').addEventListener('click', (e) => { e.stopPropagation(); $('in-files').click(); });
