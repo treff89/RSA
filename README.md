@@ -91,20 +91,21 @@ analysed as that type. On a radiograph **every landmark is placed automatically*
 
 ### How well does it work? Candidly:
 
-Measured on a development corpus of about 750 openly available radiographs (journal figures, a shoulder surgeon's
-teaching blog, an open dataset — kept out of this repository), 145 of them with landmarks annotated by hand. The
+Measured on a development corpus of about 870 openly available radiographs (journal figures, a shoulder surgeon's
+teaching blog, an open dataset — kept out of this repository), 220 of them with landmarks annotated by hand. The
 figures below are **held out**: each film was placed by a model that had not been trained on it (two-fold split of the
-75 most recently annotated films), running the whole pipeline. Errors are fractions of the glenosphere radius
-(about 19 mm), median and 75th percentile.
+150 most recently annotated films), running the whole pipeline. Errors are fractions of the implant radius (about
+19 mm for a glenosphere; the head radius on hemi and native films), median and 75th percentile.
 
-* **Glenosphere**: centre within 0.03 R (median) when found.
-* **Reverse bony landmarks**: acromion undersurface 0.19 (75th 1.3), inferior glenoid rim 0.20 (0.44), superior
-  tubercle 0.35 (0.77), top of the tuberosity 0.49 (0.88), acromion tip 0.53 (1.6), lateral tuberosity 0.54 (1.0).
-  The long tail is mostly films where the glenosphere's back face is misread by 10–40°, which swings everything on the
-  scapula; correcting the face re-places them. Treat them as a head start to check, not as measurements.
-* **Native shoulders**: the humeral head is found within about 0.1 head radius on the annotated native films (it was
-  usually missed before the radius range was widened). The native landmark model was learned from all 30 annotated
-  native films, so no held-out figure exists for it yet.
+* **Glenosphere**: centre within 0.04 R (median) when found.
+* **Reverse bony landmarks** (74 films): acromion undersurface 0.18 (75th 0.95), inferior glenoid rim 0.21 (0.45),
+  superior tubercle 0.32 (0.58), top of the tuberosity 0.44 (0.95), lateral tuberosity 0.52 (1.0), acromion tip
+  0.59 (1.4). The long tail is mostly films where the glenosphere's back face is misread by 10–40°, which swings
+  everything on the scapula; correcting the face re-places them. Treat them as a head start to check.
+* **Native shoulders** (10 films): head 0.08, glenoid rim 0.11–0.13, tuberosity 0.10–0.11, acromion undersurface
+  0.15, acromion tip 0.32.
+* **Hemiarthroplasty** (14–16 films): head 0.06, glenoid rim 0.18–0.23, acromion 0.23–0.30, tuberosity 0.25,
+  best-fit-circle points 0.2–0.64.
 * **Canal lines** come from tracing both cortices along the whole stem (median-filtered, robust fit), and the stem
   widths are measured on the metal; they have not been checked against hand-placed canal lines.
 * Computing LSA and DSA from annotated landmarks reproduces the values printed in the source articles to within
