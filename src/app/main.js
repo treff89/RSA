@@ -966,6 +966,12 @@ function setImplant(id, lock = true) {
   if (lock) state.implantLocked = true;
   state.autoSwitched = false;
   for (const t of document.querySelectorAll('.type')) { t.classList.toggle('on', t.dataset.implant === id); t.setAttribute('aria-checked', String(t.dataset.implant === id)); }
+  const detail = {
+    reverse: 'Lateralisation and distalisation angles, acromion–tuberosity distance, glenosphere tilt and overhang, notching and stem fit — and the change from the pre-op film, at the same arm position.',
+    pyc: 'Overstuffing (centre of rotation, head size and height), glenoid erosion and medialisation, stem fit — and change between films.',
+    native: 'Critical shoulder angle, acromiohumeral distance, glenoid inclination and version, posterior acromial shape — and anatomic versus reverse.',
+  }[id];
+  if (detail && $('type-detail')) $('type-detail').textContent = detail;
   if (cur()) {
     disarm(); state.selMetric = null;
     const item = cur();

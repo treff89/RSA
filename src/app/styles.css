@@ -79,7 +79,24 @@ button, input, select { font: inherit; color: inherit; }
 
 /* ── intro ──────────────────────────────── */
 main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-#intro { max-width: 720px; width: 100%; margin: 0 auto; padding: 56px 20px 30px; }
+#intro { max-width: 1000px; width: 100%; margin: 0 auto; padding: 56px 20px 90px; }
+.intro-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 48px; align-items: start; }
+.type-detail { color: var(--muted); font-size: 13.5px; margin-top: 10px; min-height: 2.6em; max-width: 40em; }
+.intro-figure { margin: 6px 0 0; color: var(--muted); }
+.intro-figure svg { width: 100%; height: auto; display: block; }
+.intro-figure figcaption { font-size: 12.5px; color: var(--faint); margin-top: 8px; line-height: 1.45; }
+.ill-bone { fill: none; stroke: #6f7b8a; stroke-width: 1.6; stroke-linecap: round; }
+.ill-metal { fill: #262d36; stroke: #c9d1d9; stroke-width: 1.4; }
+.ill-metal-line { fill: none; stroke: #c9d1d9; stroke-width: 2; stroke-linecap: round; }
+.ill-lsa, .ill-dsa { fill: none; stroke-width: 1.3; stroke-dasharray: 5 4; }
+.ill-lsa, .ill-arc-lsa { stroke: var(--accent); }
+.ill-dsa, .ill-arc-dsa { stroke: #6aa9f2; }
+.ill-arc-lsa, .ill-arc-dsa { fill: none; stroke-width: 1.6; }
+.ill-pt circle { fill: #e6edf3; }
+.ill-lab { font: 600 12px var(--sans, system-ui, sans-serif); }
+.ill-lab.lsa { fill: var(--accent); } .ill-lab.dsa { fill: #6aa9f2; }
+.ill-small { font: 10.5px var(--sans, system-ui, sans-serif); fill: #8b96a3; }
+@media (max-width: 860px) { .intro-grid { grid-template-columns: 1fr; gap: 24px; } .intro-figure { max-width: 320px; } }
 #intro h1 { font-size: 24px; font-weight: 600; line-height: 1.25; }
 .lede { color: var(--muted); font-size: 15px; margin-top: 10px; max-width: 46em; }
 .drop {

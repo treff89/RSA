@@ -28,6 +28,8 @@
 <main>
   <!-- ───────────── Start screen ───────────── -->
   <section id="intro">
+    <div class="intro-grid">
+    <div class="intro-text">
     <h1>Shoulder arthroplasty radiographs, measured</h1>
     <p class="lede">Reverse, hemiarthroplasty and native shoulders, on X-ray or CT. Landmarks are placed automatically for you to
       check; each value is shown against its published range. Files are anonymised as they are opened and stay on this computer.</p>
@@ -37,7 +39,7 @@
       <button class="type" role="radio" aria-checked="false" data-implant="pyc">Hemiarthroplasty</button>
       <button class="type" role="radio" aria-checked="false" data-implant="native">Native</button>
     </div>
-
+    <p id="type-detail" class="type-detail">Lateralisation and distalisation angles, acromion–tuberosity distance, glenosphere tilt and overhang, notching and stem fit — and the change from the pre-op film, at the same arm position.</p>
     <div id="drop" class="drop" tabindex="0" role="button" aria-label="Choose images">
       <p class="drop-title">Drop DICOM files, a CT folder, a .zip or PNG/JPEG images</p>
       <div class="drop-actions">
@@ -54,6 +56,38 @@
       <p id="scan-label">Reading files…</p>
     </div>
     <div id="intro-error" class="alert error" hidden></div>
+    </div>
+    <figure class="intro-figure" aria-label="Diagram: lateralisation and distalisation shoulder angles on a reverse shoulder replacement">
+      <svg viewBox="0 30 310 330" role="img">
+        <title>Lateralisation (LSA) and distalisation (DSA) shoulder angles</title>
+        <!-- scapula: spine and acromion, glenoid neck, lateral border -->
+        <path class="ill-bone" d="M10 64 C70 50 150 50 205 58 C235 62 262 66 270 82 C262 92 240 90 214 88 C170 84 120 86 92 96"/>
+        <path class="ill-bone" d="M92 96 C110 110 122 124 126 140 L126 202 C110 230 84 268 58 330"/>
+        <path class="ill-bone" d="M126 140 C104 130 70 118 30 112"/>
+        <!-- baseplate screws and glenosphere -->
+        <path class="ill-metal-line" d="M126 158 L82 150 M126 186 L84 200"/>
+        <circle class="ill-metal" cx="146" cy="172" r="33"/>
+        <path class="ill-metal-line" d="M127 140 L127 204"/>
+        <!-- humeral cup and stem -->
+        <path class="ill-metal" d="M170 136 C196 150 204 186 196 214 L208 216 L222 344 L206 346 L186 222 L176 212 C186 190 182 160 166 144 Z"/>
+        <!-- humerus -->
+        <path class="ill-bone" d="M214 120 C232 124 244 140 244 166 C244 200 236 260 238 352"/>
+        <path class="ill-bone" d="M172 230 C176 270 180 310 184 352"/>
+        <!-- construction lines -->
+        <path class="ill-lsa" d="M258 80 L128 136 M258 80 L242 166"/>
+        <path class="ill-dsa" d="M128 136 L258 80 M128 136 L214 120"/>
+        <path class="ill-arc-lsa" d="M232 91 A28 28 0 0 0 253 107"/>
+        <path class="ill-arc-dsa" d="M159.2 122.6 A34 34 0 0 1 161.4 129.8"/>
+        <g class="ill-pt"><circle cx="258" cy="80" r="3"/><circle cx="128" cy="136" r="3"/><circle cx="242" cy="166" r="3"/><circle cx="214" cy="120" r="3"/></g>
+        <text class="ill-lab lsa" x="230" y="122">LSA</text>
+        <text class="ill-lab dsa" x="146" y="106">DSA</text>
+        <text class="ill-small" x="214" y="44">acromion</text>
+        <text class="ill-small" x="40" y="138">glenoid</text>
+        <text class="ill-small" x="250" y="170">tuberosity</text>
+      </svg>
+      <figcaption>Lateralisation and distalisation shoulder angles, measured on every reverse film — before and after, with the arm brought to the same position.</figcaption>
+    </figure>
+    </div>
   </section>
 
   <!-- ───────────── Workspace ───────────── -->
