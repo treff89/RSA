@@ -17,7 +17,12 @@ export function findShaft(g, head, opts = {}) {
     if (y > g.height - 3) break;
     const v = [];
     for (let i = -half; i <= half; i++) v.push(sample(g, cx + i * step, y));
-    if (v.some((x) => !Number.isFinite(x))) continue;
+    // the profile is wide (±2.2 R) and often runs off the film beside a head near the edge: pad with the nearest
+    // sample inside the image (a flat run has no gradient, so it adds no edges) rather than dropping the level
+    const fin = v.map((x, i) => (Number.isFinite(x) ? i : -1)).filter((i) => i >= 0);
+    if (fin.length < v.length / 3) continue;
+    for (let i = 0; i < fin[0]; i++) v[i] = v[fin[0]];
+    for (let i = fin[fin.length - 1] + 1; i < v.length; i++) v[i] = v[fin[fin.length - 1]];
     // smooth, then central-difference gradient
     const s = v.map((_, i) => (v[Math.max(0, i - 2)] + v[Math.max(0, i - 1)] + v[i] + v[Math.min(v.length - 1, i + 1)] + v[Math.min(v.length - 1, i + 2)]) / 5);
     const d = s.map((_, i) => (i > 1 && i < s.length - 2 ? (s[i + 2] - s[i - 2]) / 4 : 0));

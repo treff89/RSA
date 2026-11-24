@@ -29,6 +29,18 @@ export function fmt(value, unit, decimals) {
   return `${s} ${unit}`;
 }
 
+/** Population reference range: norm = { mean, sd, n, src }. Returns { lo, hi, z, inside, text } or null. */
+export function normRange(norm, value) {
+  if (!norm || !(norm.sd > 0)) return null;
+  const lo = norm.mean - 1.96 * norm.sd, hi = norm.mean + 1.96 * norm.sd;
+  const r = { lo, hi };
+  if (!Number.isFinite(value)) return r;
+  const z = (value - norm.mean) / norm.sd, inside = value >= lo && value <= hi;
+  const f = (v) => (Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1));
+  const sign = z >= 0 ? '+' : '−';
+  return { ...r, z, inside, text: `${inside ? 'Within' : 'Outside'} the range of 95% of reverse shoulders in ${norm.src}: ${f(lo)}–${f(hi)} (mean ${f(norm.mean)} ± ${f(norm.sd)}, n = ${norm.n}). This film: ${sign}${Math.abs(z).toFixed(1)} SD.` };
+}
+
 /** The band a value falls in. Bands are ordered by ascending `upTo` (exclusive upper bound); the last has none. */
 export function bandFor(bands, value) {
   if (!bands || !bands.length || !Number.isFinite(value)) return null;
@@ -47,6 +59,7 @@ export function evaluateMetric(m, ctx) {
   const base = {
     id: m.id, label: m.label, unit: m.unit, group: m.group, target: m.target || '', evidence: m.evidence || 'descriptive',
     what: m.what || '', caveat: m.caveat || '', refs: m.refs || [], gauge: m.gauge || null, bands: m.bands || null,
+    norm: m.norm || null,
     value: NaN, text: '—', status: 'pending', tag: '', say: '', missing: [], provisional: false, needsScale: false,
   };
   const missing = (m.needs || []).filter((id) => !has(ctx, id));
@@ -58,13 +71,19 @@ export function evaluateMetric(m, ctx) {
   const band = bandFor(m.bands, value);
   const provisional = (m.needs || []).some((id) => ctx.state && ctx.state[id] === 'estimated');
   const say = band ? (typeof band.say === 'function' ? band.say(value, ctx) : band.say || '') : '';
+  let status = band ? band.status : 'info', tag = band ? band.tag || '' : '';
+  // population reference: where the value sits among published shoulders (mean ± 1.96 SD holds 95% of them).
+  // Metrics with no outcome-linked cut-off are graded by it: inside → typical, outside → unusual.
+  const nr = normRange(m.norm, value);
+  if (nr && status === 'info') { status = nr.inside ? 'good' : 'borderline'; tag = nr.inside ? 'Typical' : 'Unusual'; }
   return {
     ...base,
     value,
     text: m.format ? m.format(value, ctx) : fmt(value, m.unit, m.decimals),
-    status: band ? band.status : 'info',
-    tag: band ? band.tag || '' : '',
+    status,
+    tag,
     say,
+    normText: nr ? nr.text : '',
     provisional,
   };
 }
@@ -91,7 +110,7 @@ export function evaluateFindings(protocol, findingsState) {
  */
 export function appraise(protocol, results, findings, ctx) {
   const all = [
-    ...results.map((r) => ({ kind: 'metric', label: r.label, text: r.text, say: r.say, status: r.status, provisional: r.provisional, tag: r.tag, id: r.id })),
+    ...results.map((r) => ({ kind: 'metric', label: r.label, text: r.text, say: r.normText ? `${r.say} ${r.normText}`.trim() : r.say, status: r.status, provisional: r.provisional, tag: r.tag, id: r.id })),
     ...findings.filter((f) => f.answered).map((f) => ({ kind: 'finding', label: f.label, text: f.optionLabel, say: f.say, status: f.status, provisional: false, tag: '', id: f.id })),
   ];
   const pick = (s) => all.filter((x) => x.status === s);

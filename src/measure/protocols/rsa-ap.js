@@ -65,7 +65,7 @@ export default {
       id: 'lsa', label: 'Lateralisation shoulder angle (LSA)', unit: '°', group: G_LAT,
       needs: ['sgt', 'acr', 'gtl'],
       compute: ({ L }) => angleAt(L.sgt, L.acr, L.gtl),
-      target: '75–95°', gauge: { min: 55, max: 115 }, evidence: 'contested', refs: ['boutsiadis2018', 'imiolczyk2024', 'erickson2022', 'sahin2025', 'okutan2024'],
+      target: '75–95°', norm: { mean: 88.4, sd: 11.8, n: 135, src: 'Sahin 2025' }, gauge: { min: 55, max: 115 }, evidence: 'contested', refs: ['boutsiadis2018', 'imiolczyk2024', 'erickson2022', 'sahin2025', 'okutan2024'],
       what: 'Angle at the lateral acromion between the line to the superior glenoid tubercle and the line to the most lateral point of the greater tuberosity. It rises as the humerus is lateralised (glenoid side, humeral side or both).',
       caveat: 'The 75–95° range comes from one series of 46 cuff-arthropathy shoulders. Larger series since (630 and 203 shoulders) found little or no link between this angle and outcome, a CT study found it tracks true lateralisation only weakly (r = 0.36), and typical values differ by design (about 79° for 145° onlay, 85° for 135° inlay stems). Read it as a reference band, not a target. It also changes with arm abduction and rotation.',
       bands: [
@@ -81,7 +81,7 @@ export default {
       id: 'dsa', label: 'Distalisation shoulder angle (DSA)', unit: '°', group: G_LAT,
       needs: ['sgt', 'acr', 'gts'],
       compute: ({ L }) => angleAt(L.acr, L.sgt, L.gts),
-      target: '40–65°', gauge: { min: 20, max: 85 }, evidence: 'contested', refs: ['boutsiadis2018', 'imiolczyk2024', 'erickson2022', 'sahin2025', 'okutan2024'],
+      target: '40–65°', norm: { mean: 40.6, sd: 12.5, n: 135, src: 'Sahin 2025' }, gauge: { min: 10, max: 85 }, evidence: 'contested', refs: ['boutsiadis2018', 'imiolczyk2024', 'erickson2022', 'sahin2025', 'okutan2024'],
       what: 'Angle at the superior glenoid tubercle between the line to the lateral acromion and the line to the top of the greater tuberosity. It rises as the humerus is brought down (distalised).',
       caveat: 'Same origin and limits as the LSA: one series of 46 shoulders, not reproduced in larger ones; on CT it did not track true distalisation (r = 0.17). In a 135-shoulder series only 44% of well-functioning reverses fell inside the band. Abducting the arm lowers it markedly.',
       bands: [
@@ -162,7 +162,7 @@ export default {
       id: 'dma', label: 'Deltoid moment arm (centre of rotation → tuberosity)', unit: 'mm', group: G_DELT, scale: true,
       needs: ['gs', 'gtl'],
       compute: (ctx) => dist(C(ctx.L.gs), ctx.L.gtl) * ctx.mm,
-      gauge: { min: 30, max: 70 }, evidence: 'descriptive', refs: ['rhee2025', 'werthel2019'],
+      norm: { mean: 53, sd: 4, n: 156, src: 'Rhee 2025 (pooled, approx.)' }, gauge: { min: 30, max: 70 }, evidence: 'descriptive', refs: ['rhee2025', 'werthel2019'],
       what: 'Straight distance from the centre of rotation (glenosphere centre) to the most lateral point of the greater tuberosity, as defined by Rhee et al. — the lever through which the middle deltoid wraps over the tuberosity.',
       caveat: 'Descriptive: post-operative means were 52–54 mm in a series of reverse arthroplasties, with no cut-off tied to outcome. The classic biomechanical moment arm (perpendicular from the centre of rotation to the deltoid line of action) is not the same quantity. Changes with arm rotation and abduction.',
       bands: [
@@ -176,7 +176,7 @@ export default {
       id: 'dwa', label: 'Deltoid wrapping angle', unit: '°', group: G_DELT,
       needs: ['acr', 'gtl', 'dtu'],
       compute: ({ L }) => angleAt(L.acr, L.gtl, L.dtu),
-      gauge: { min: 130, max: 180 }, evidence: 'descriptive', refs: ['rhee2025'],
+      norm: { mean: 160, sd: 8.5, n: 156, src: 'Rhee 2025 (pooled, approx.)' }, gauge: { min: 130, max: 180 }, evidence: 'descriptive', refs: ['rhee2025'],
       what: 'Angle at the most lateral point of the greater tuberosity between the line to the lateral tip of the acromion and the line to the midpoint of the deltoid tuberosity: the path of the middle deltoid as it wraps around the tuberosity. 180° = a straight deltoid with no wrap; the smaller the angle, the more wrap.',
       caveat: 'Descriptive: post-operative means 159–161° (SD 7–10°) in one series. The deltoid tuberosity must be on the film, which needs a longer cassette than many shoulder views.',
       bands: [

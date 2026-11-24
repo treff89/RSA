@@ -9,9 +9,10 @@
 //   4. glenoid height on both, no calibration           → percent of glenoid height
 // otherwise distances are not compared. Angles and Schippers' ratios need no scale.
 import { angleAt, signedDistToLine } from './geom.js';
+import { bandFor } from './core.js';
 import { C, sub, dot, unit, dist, lateral, supInf, tiltVsFossa, hara, shara, humeralLine, varusAngle, shaftAxis } from './protocols/xray-common.js';
 import { schippers } from './protocols/pyc-ap.js';
-import { neutralise } from './neutral.js';
+import { neutralise, SHARA_NEUTRAL } from './neutral.js';
 
 const fmtSigned = (v, unit, d = 1) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(v).toFixed(d)}${unit === '°' ? '°' : unit === '%' ? '%' : ` ${unit}`}`;
 const fmtVal = (v, unit, d = 1) => `${v.toFixed(d)}${unit === '°' ? '°' : unit === '%' ? '%' : ` ${unit}`}`;
@@ -179,20 +180,42 @@ function gradeSchippers(d, months, which) {
  */
 export function compareFilms(e, c, opts = {}) {
   const type = pairType(e, c);
-  // matching: the current film's humerus is turned about its centre of rotation to the earlier film's arm position
-  // (relative to the scapula when both films have the fossa line, else relative to the image vertical)
+  // matching the arm position. opts.match: 'toEarlier' (or true) turns the current film's humerus to the earlier
+  // film's arm position; 'toCurrent' turns the earlier film's humerus to the current one's; 'standard' turns both to
+  // the standard position (SHARA 104°, or the arm vertical). Positions are relative to the scapula when both films
+  // have the fossa line, else relative to the image vertical. Each humerus turns about its own centre of rotation.
   let match = null;
   if (opts.match) {
     const raw = (b) => (b.ctx.raw ? { ...b, ctx: b.ctx.raw } : b);
     e = raw(e); c = raw(c);
+    const mode = opts.match === true ? 'toEarlier' : opts.match;
     const kind = e.ctx.L.ssf && c.ctx.L.ssf ? 'shara' : 'hara';
-    const want = kind === 'shara' ? shara(e.ctx) : hara(e.ctx);
-    if (!Number.isFinite(want)) match = { ok: false, reason: e.protocol.implant === 'native' ? 'Place the humeral shaft line on the earlier film to match the arm position.' : 'The earlier film\'s arm position could not be measured.' };
-    else {
-      const n = neutralise(c.protocol, c.ctx, { kind, deg: want });
-      match = n.ok ? { ok: true, kind, want, deg: n.deg, centre: n.centre, before: n.before } : { ok: false, reason: n.reason };
-      if (n.ok) c = { ...c, ctx: { ...c.ctx, L: n.L, raw: c.ctx, neutral: n } };
+    const pos = (b) => (kind === 'shara' ? shara(b.ctx) : hara(b.ctx));
+    const need = (b) => (b.protocol.implant === 'native' ? 'Place the humeral shaft line' : 'Check the stem axis');
+    const turn = (b, deg) => {
+      const n = neutralise(b.protocol, b.ctx, { kind, deg });
+      return n.ok ? { b: { ...b, ctx: { ...b.ctx, L: n.L, raw: b.ctx, neutral: n } }, n } : { reason: n.reason };
+    };
+    const per = {};
+    let want = null, reason = null;
+    if (mode === 'standard') {
+      want = kind === 'shara' ? SHARA_NEUTRAL : 0;
+      const te = turn(e, want), tc = turn(c, want);
+      if (te.n && tc.n) { e = te.b; c = tc.b; per.earlier = te.n; per.current = tc.n; } else reason = te.reason || tc.reason;
+    } else {
+      const fixed = mode === 'toCurrent' ? c : e;
+      want = pos(fixed);
+      if (!Number.isFinite(want)) reason = `${need(fixed)} on the ${mode === 'toCurrent' ? 'later' : 'earlier'} film to measure its arm position.`;
+      else {
+        const t = turn(mode === 'toCurrent' ? e : c, want);
+        if (!t.n) reason = t.reason;
+        else if (mode === 'toCurrent') { e = t.b; per.earlier = t.n; } else { c = t.b; per.current = t.n; }
+      }
     }
+    match = reason ? { ok: false, mode, reason } : {
+      ok: true, mode, kind, want, per,
+      before: { earlier: pos(e.ctx.raw ? { ...e, ctx: e.ctx.raw } : e), current: pos(c.ctx.raw ? { ...c, ctx: c.ctx.raw } : c) },
+    };
   }
   const scale = commonScale(e, c);
   const rows = [];
@@ -257,7 +280,7 @@ export function compareFilms(e, c, opts = {}) {
   }
   if (type === 'other') notes.push('These films are of different study types (for example a hemiarthroplasty against a reverse); only quantities defined on both are listed and none is graded.');
   if (scale.mode === 'relative') notes.push('Changes in distances are expressed relative to glenoid height and are not graded; calibrate at least one film by its implant to grade them in millimetres.');
-  return { type, typeText: PAIR_TEXT[type], scale, rows, findings, notes, match };
+  return { type, typeText: PAIR_TEXT[type], scale, rows, findings, notes, match, key: keyResults(byId, c, type, scale) };
 }
 
 function describe(id, d, type, unitS) {
@@ -274,4 +297,35 @@ function describe(id, d, type, unitS) {
     case 'hara': return 'Arm position as taken (+ = more abducted now).';
     default: return unitS === '% GH' ? 'Relative to glenoid height; not graded.' : '';
   }
+}
+
+// Typical change across a reverse arthroplasty, for context on the headline cards.
+const TYPICAL = {
+  atd: { mean: 21, sd: 10, src: 'Jobin 2012' },     // deltoid lengthening, post-op minus pre-op acromion–tuberosity distance
+};
+
+/**
+ * The two headline results of a comparison: distalisation (DSA, arm lengthening) and lateralisation (LSA, tuberosity
+ * shift). Each card: { id, title, angle: row, dist: row, post: { value, status, tag, target } }.
+ */
+function keyResults(byId, c, type, scale) {
+  if (!['preop-reverse', 'followup-reverse', 'native'].includes(type) && !byId.dsa && !byId.lsa) return [];
+  const band = (id, v) => {
+    const m = (c.protocol.metrics || []).find((x) => x.id === id);
+    if (!m || !Number.isFinite(v)) return null;
+    const b = bandFor(m.bands, v);
+    return b ? { status: b.status, tag: b.tag || '', target: m.target || '', norm: m.norm || null } : null;
+  };
+  const card = (id, title, angleId, distId, word) => {
+    const a = byId[angleId], d = byId[distId];
+    if (!a && !d) return null;
+    const post = a ? band(angleId, a.current) : null;
+    let typical = null;
+    if (d && distId === 'atd' && type === 'preop-reverse' && scale.unit === 'mm') typical = TYPICAL.atd;
+    return { id, title, word, angle: a || null, dist: d || null, post, typical };
+  };
+  return [
+    card('dist', 'Distalisation', 'dsa', 'atd', type === 'preop-reverse' ? 'arm lengthening' : 'acromion–tuberosity distance'),
+    card('lat', 'Lateralisation', 'lsa', 'gtLat', type === 'preop-reverse' ? 'humeral lateralisation' : 'tuberosity lateral to acromion'),
+  ].filter(Boolean);
 }

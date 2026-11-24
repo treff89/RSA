@@ -27,7 +27,12 @@ scapular tilt are not corrected, and on native and hemi films the acromiohumeral
 turns about its own centre). Native films need the humeral shaft line, found automatically when enough shaft is on the
 film. With both films normalised, the Compare tab compares them at the same arm position.
 
-**Comparison.** On a reverse film, *Add pre-op X-ray* in the *Comparison* tab loads the pre-operative film (anonymised
+**Comparison.** Drop the post-operative and pre-operative films together: on a reverse study a film with no implant
+is taken as the pre-operative film, analysed as a native shoulder (head, glenoid, acromion, tuberosity and shaft line
+placed automatically), and the Comparison tab opens with two headline cards — **distalisation** (DSA change and arm
+lengthening) and **lateralisation** (LSA change and humeral lateralisation) — at matched arm position. The match can run
+either way (post-op humerus turned to the pre-op arm position, or pre-op to post-op) or bring both to the standard
+position (SHARA 104°). Alternatively, on a reverse film, *Add pre-op X-ray* in the *Comparison* tab loads the pre-operative film (anonymised
 like the rest); the post-operative humerus is turned about the glenosphere centre to the pre-operative arm position
 (relative to the scapula when both films have the fossa line), and distalisation, lateralisation, acromiohumeral and
 acromion–tuberosity distances, global lateral offset, tuberosity-to-centre distance and centre-of-rotation shift are
@@ -123,7 +128,10 @@ Each measurement carries its definition, its reference band, an **evidence level
 | Pragmatic | No validated cut-off exists; the band is a stated convention |
 
 Colours: green within range, amber borderline, red outside in the direction the literature links to a problem, blue
-descriptive. Each citation is tagged with how it was checked while the tool was written — *checked against the paper*,
+descriptive. Where a published series gives a mean and SD (LSA and DSA: Sahin 2025, n = 135; deltoid moment arm and
+wrapping angle: Rhee 2025, n = 156), the gauge also shows the **range of 95% of reverse shoulders** (mean ± 1.96 SD) as a
+bracket under the bar, with the film's z-score; metrics with no outcome-linked cut-off are then coloured by it
+(green inside, amber outside). This is a population reference range, not a confidence interval and not a target. Each citation is tagged with how it was checked while the tool was written — *checked against the paper*,
 *quoted second-hand* or *from memory — verify* — see `src/measure/refs.js`. Some honest highlights:
 
 * **LSA 75–95° / DSA 40–65°** (Boutsiadis 2018) come from 46 shoulders. Series of 630 and 203 shoulders found little
@@ -204,3 +212,10 @@ Pushing to `main` runs the tests and publishes `dist/` to the `gh-pages` branch 
 branch → `gh-pages` / root).
 
 MIT licence.
+
+## Image credits
+
+The radiographs on the start page (background and the annotated reverse film) are from Wikimedia Commons, cropped and
+contrast-adjusted: Hellerhoff (CC BY-SA 3.0 / 4.0), KChri75 (CC BY-SA 4.0), Lucien Monfils (CC BY-SA 3.0), and
+Mattiassich G, Marcovici LL, Krifter RM et al. (CC BY 2.0). They are in `src/app/static/img/` under those licences, not
+the MIT licence of the code. The training corpus itself is not redistributed.

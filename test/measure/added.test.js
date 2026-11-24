@@ -45,7 +45,8 @@ test('deltoid moment arm and wrapping angle (Rhee)', () => {
     near(r.dma.value, 260 * 0.2, 1e-6, 'DMA');
     const a = Math.atan2(60, 150) + Math.atan2(60, 600);   // angles of the two arms from the vertical at gtl
     near(r.dwa.value, 180 - a * 180 / Math.PI, 1e-6, 'DWA');
-    assert.equal(r.dwa.status, 'info');
+    assert.equal(r.dwa.status, 'good');   // inside the 95% range of Rhee's series (160 ± 8.5°)
+    assert.match(r.dwa.normText, /Within the range of 95%/);
   }
 });
 
@@ -256,4 +257,35 @@ test('normalisation of a native film turns the head about its own centre and nee
   // the rotation helper leaves scapular landmarks untouched
   const r = rotateHumerus(ctx.L, { x: 600, y: 300 }, 30);
   assert.deepEqual(r.acu, ctx.L.acu);
+});
+
+test('comparison matches arm position in either direction or to the standard, and gives headline cards', () => {
+  const mk = (deg) => ({
+    gs: { cx: 520, cy: 360, r: 90 }, face: { a: { x: 500, y: 280 }, b: { x: 500, y: 440 } },
+    stem: { a: { x: 600, y: 420 }, b: { x: 600 + 400 * Math.sin(rad(deg)), y: 420 + 400 * Math.cos(rad(deg)) } },
+    sgt: { x: 500, y: 280 }, igr: { x: 500, y: 440 }, acr: { x: 640, y: 200 }, gts: { x: 630, y: 330 }, gtl: { x: 690, y: 380 },
+  });
+  // the same construct with the humerus turned 20° about the centre of rotation
+  const e = bundle('rsa-ap', mk(5), 1, 0.2, 'implant'), c = bundle('rsa-ap', rotateHumerus(mk(5), { x: 520, y: 360 }, 20), 1, 0.2, 'implant');
+  near(Math.abs(c.results.find((x) => x.id === 'hara').value - e.results.find((x) => x.id === 'hara').value), 20, 1e-6);
+  // same construct, different arm position: once matched (either way) the angles agree
+  for (const mode of ['toEarlier', 'toCurrent', 'standard']) {
+    const r = compareFilms(e, c, { match: mode });
+    assert.ok(r.match.ok, mode);
+    near(r.rows.find((x) => x.id === 'dsa').change, 0, 1e-6, `${mode} DSA`);
+    near(r.rows.find((x) => x.id === 'lsa').change, 0, 1e-6, `${mode} LSA`);
+    assert.deepEqual(r.key.map((k) => k.id), ['dist', 'lat']);
+  }
+  const t = compareFilms(e, c, { match: 'toCurrent' });
+  assert.ok(t.match.per.earlier && !t.match.per.current);
+  near(t.match.want, t.match.before.current, 1e-6);
+  const s = compareFilms(e, c, { match: 'standard' });
+  assert.ok(s.match.per.earlier && s.match.per.current);
+});
+
+test('population reference range grades metrics with no cut-off and adds a z-score', async () => {
+  const { normRange } = await import('../../src/measure/core.js');
+  const n = normRange({ mean: 53, sd: 4, n: 156, src: 'X' }, 62);
+  near(n.lo, 53 - 7.84, 1e-9); assert.equal(n.inside, false); near(n.z, 2.25, 1e-9);
+  assert.match(n.text, /Outside the range of 95%/);
 });

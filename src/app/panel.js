@@ -1,7 +1,7 @@
 // HTML builders for the side panel. They return strings built only from the app's own text plus screened, escaped
 // values. The page's CSP forbids inline styles, so positions are emitted as data-attributes and applied by
 // applyGeometry() after insertion.
-import { STATUS_LABEL, EVIDENCE_LABEL, bandFor } from '../measure/core.js';
+import { STATUS_LABEL, EVIDENCE_LABEL, bandFor, normRange } from '../measure/core.js';
 import { refList, VERIFY_LABEL } from '../measure/refs.js';
 import { MUSCLES } from '../measure/muscle.js';
 
@@ -52,7 +52,11 @@ function gauge(r) {
       lo = Math.max(lo, hi);
     }
   }
-  return `<div class="gauge" aria-hidden="true">${zones}<i class="mk ${r.status}" data-l="${pos(r.value).toFixed(2)}"></i></div>`;
+  // population reference range (95% of published shoulders) as a bracket under the bar, with its mean
+  let norm = '';
+  const nr = normRange(r.norm);
+  if (nr) norm = `<span class="nr" data-l="${pos(nr.lo).toFixed(2)}" data-w="${(pos(nr.hi) - pos(nr.lo)).toFixed(2)}"></span><span class="nm" data-l="${pos(r.norm.mean).toFixed(2)}"></span>`;
+  return `<div class="gauge${nr ? ' has-norm' : ''}" aria-hidden="true">${zones}${norm}<i class="mk ${r.status}" data-l="${pos(r.value).toFixed(2)}"></i></div>`;
 }
 
 function refsHtml(keys) {
@@ -70,7 +74,8 @@ export function measurementRow(r, selected) {
     body = `<div class="m-head"><span class="m-label">${esc(r.label)}</span><span class="m-value">${esc(r.text)}</span></div>
       <div class="m-sub">${chip(r.status, r.tag || STATUS_LABEL[r.status])}${r.target ? `<span class="m-target">reference ${esc(r.target)}</span>` : ''}${r.provisional ? '<span class="st prov">provisional</span>' : ''}</div>
       ${gauge(r)}
-      ${r.say ? `<p class="m-say">${esc(r.say)}</p>` : ''}`;
+      ${r.say ? `<p class="m-say">${esc(r.say)}</p>` : ''}
+      ${r.normText ? `<p class="m-norm">${esc(r.normText)}</p>` : ''}`;
   }
   return `<div class="m ${r.status}${selected ? ' sel' : ''}" data-metric="${esc(r.id)}">
     ${body}
@@ -187,24 +192,47 @@ export function compareView(c, candidates, isReverse) {
   const opts = candidates.map((x) => `<option value="${x.uid}"${x === c.other ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
   const followUp = !c.preop;
   const form = `<div class="cmp-form">
-      <label><span>${c.preop ? 'Pre-op film' : 'Compare with'}</span><select data-cmp="other">${opts}</select></label>
+      <label><span>${c.preop ? (c.thisLater ? 'Pre-op film' : 'Post-op film') : 'Compare with'}</span><select data-cmp="other">${opts}</select></label>
       ${followUp ? `<label><span>This film is</span><select data-cmp="order"><option value="thisLater"${c.thisLater ? ' selected' : ''}>later</option><option value="thisEarlier"${c.thisLater ? '' : ' selected'}>earlier</option></select></label>
       <label><span>Months apart</span><input type="number" min="0" max="600" step="1" data-cmp="months" value="${esc(c.months)}"></label>` : ''}
       ${addBtn}
     </div>`;
   const m = c.match;
+  const A = c.preop ? ['pre-op', 'post-op'] : ['earlier', 'later'];
+  const mode = (m && m.mode) || 'toEarlier';
+  const seg = `<div class="cmp-matchsel"><span>Arm position</span><div class="seg small" role="group" aria-label="Match arm position">
+      <button data-cmp-match="toEarlier" class="${mode === 'toEarlier' ? 'on' : ''}" title="Turn the ${A[1]} humerus to the ${A[0]} arm position">${A[1]} → ${A[0]}</button>
+      <button data-cmp-match="toCurrent" class="${mode === 'toCurrent' ? 'on' : ''}" title="Turn the ${A[0]} humerus to the ${A[1]} arm position">${A[0]} → ${A[1]}</button>
+      <button data-cmp-match="standard" class="${mode === 'standard' ? 'on' : ''}" title="Turn both to the standard position">both standard</button></div></div>`;
+  const pos = (v) => (Number.isFinite(v) ? `${v.toFixed(0)}°` : '?');
+  const K = m && m.kind === 'shara' ? 'SHARA' : 'HARA';
   const matchLine = m && m.ok
-    ? `<p class="cmp-match">Arm matched: ${c.preop ? 'post-op' : 'later'} humerus turned ${Math.abs(m.deg).toFixed(0)}° to ${m.kind === 'shara' ? 'SHARA' : 'HARA'} ${m.want.toFixed(0)}° (purple outline).</p>` : '';
+    ? `<p class="cmp-match">${m.mode === 'standard'
+      ? `Both humeri turned to ${K} ${m.want.toFixed(0)}° (${A[0]} ${pos(m.before.earlier)}, ${A[1]} ${pos(m.before.current)} as taken) — purple outline.`
+      : `${m.mode === 'toCurrent' ? A[0] : A[1]} humerus turned ${Math.abs((m.per.current || m.per.earlier).deg).toFixed(0)}° to the ${m.mode === 'toCurrent' ? A[1] : A[0]} arm position (${K} ${m.want.toFixed(0)}°)${(m.mode === 'toCurrent') !== c.thisLater ? ' — purple outline' : ''}.`}</p>` : '';
+  const keyCards = (c.key || []).map((k) => keyCard(k, c)).join('');
   const row = (r) => `<tr class="${r.status}"><td><b>${esc(r.label)}</b>${r.say ? `<br><span class="cmp-say">${esc(r.say)}</span>` : ''}</td><td class="num">${esc(r.earlierText)}</td><td class="num">${esc(r.currentText)}</td><td class="num">${chip(r.status, r.changeText)}</td></tr>`;
   const frow = (f) => `<tr class="${f.status}"><td><b>${esc(f.label)}</b></td><td>${esc(f.earlierText)}</td><td>${esc(f.currentText)}</td><td>${chip(f.status, f.status === 'good' ? 'same' : 'changed')}</td></tr>`;
   const table = c.rows.length || c.findings.length
     ? `<table class="cmp"><thead><tr><th></th><th>${c.preop ? 'Pre-op' : 'Earlier'}</th><th>${c.preop ? 'Post-op' : 'Current'}</th><th>Change</th></tr></thead><tbody>${c.rows.map(row).join('')}${c.findings.map(frow).join('')}</tbody></table>`
     : '<p class="note">Place the same landmarks on both films to compare them.</p>';
-  return `${form}${matchLine}
+  return `${form}${seg}${matchLine}
+    ${keyCards ? `<div class="cmp-key">${keyCards}</div>` : ''}
     ${c.notes.map((n) => `<p class="alert warn">${esc(n)}</p>`).join('')}
     ${table}
     <p class="note">${esc(c.scale.text)}</p>
     <details class="cmp-src"><summary>Sources</summary>${refsHtml(['ladermann2014', 'ladermann2012', 'otto2013', 'rhee2025', 'werthel2019', 'mitrousias2026', 'schippers2026'])}</details>`;
+}
+
+/** A headline card: the angle change large, the distance change under it, the post-op value against its range. */
+function keyCard(k, c) {
+  const a = k.angle, d = k.dist;
+  const big = a ? a.changeText : d.changeText;
+  const st = d && d.status !== 'info' ? d.status : k.post ? k.post.status : 'info';
+  const post = a && k.post ? `<div class="k-post">${c.preop ? 'Post-op' : 'Now'} ${esc(a.currentText)} ${chip(k.post.status, k.post.tag)}${k.post.target ? ` <span class="m-target">ref ${esc(k.post.target)}</span>` : ''}${k.post.norm ? ` <span class="m-target">· 95% of reverses ${normRange(k.post.norm).lo.toFixed(0)}–${normRange(k.post.norm).hi.toFixed(0)}°</span>` : ''}</div>` : '';
+  const pre = a ? `<div class="k-sub">${esc(a.label.replace(/ \(.*\)$/, ''))}: ${esc(a.earlierText)} → ${esc(a.currentText)}</div>` : '';
+  const dist = d ? `<div class="k-sub"><b>${esc(d.changeText)}</b> ${esc(k.word)}${d.unit === 'mm' ? '' : ' (relative — calibrate for mm)'}${k.typical ? ` · typical ${k.typical.mean} ± ${k.typical.sd} mm (${esc(k.typical.src)})` : ''}</div>` : '';
+  return `<div class="kcard ${st}"><div class="k-title">${esc(k.title)}</div><div class="k-big">${esc(big)}</div>${pre}${dist}${post}${d && d.status !== 'info' && d.say ? `<p class="k-say">${esc(d.say)}</p>` : ''}</div>`;
 }
 
 export { bandFor };

@@ -101,7 +101,7 @@ function onScanned(result, append = false) {
     state.report = { ...a, filesScanned: a.filesScanned + r.filesScanned, totalElementsDiscarded: a.totalElementsDiscarded + r.totalElementsDiscarded,
       identifiersFound: [...(a.identifiersFound || []), ...(r.identifiersFound || [])], burnedInRisk: (a.burnedInRisk || 0) + (r.burnedInRisk || 0) };
   } else state.report = result.report;
-  if (!append) { state.items = []; state.cur = -1; state.queue = []; }
+  if (!append) { state.items = []; state.cur = -1; state.queue = []; state.autoCompared = false; }
   const role = append ? state.addRole : null;
   state.addRole = null;
   let n = append ? state.items.length : 0;
@@ -117,6 +117,7 @@ function onScanned(result, append = false) {
     state.ctSeries = result.ct.series;
   }
   if (!state.queue.length) { onError({ scope: append ? 'load' : 'scan', message: 'The files were read, but none of the images can be decoded here (unsupported compression).' }); return; }
+  state.queueTotal = state.queue.length + (append ? state.items.length : 0);
   showWorkspace();
   if (append) state.selectNew = true;
   loadNext();
@@ -124,7 +125,7 @@ function onScanned(result, append = false) {
 
 function loadNext() {
   const q = state.queue.shift();
-  if (!q) { $('progress').hidden = true; return; }
+  if (!q) { $('progress').hidden = true; autoCompare(); return; }
   state.loadingName = q.name;
   onProgress({ scope: 'load', fraction: 0.05, label: `Opening ${q.name}…` });
   state.loadingImplant = q.role === 'preop' ? 'native' : state.implant;
@@ -135,6 +136,12 @@ function loadNext() {
 
 function onXray(m) {
   const det = m.det || {};
+  // a reverse study opened with several films: a film with no implant on it is taken as the pre-operative film
+  // and analysed as a native shoulder (its type can be changed back on its own tab)
+  if (!state.loadingRole && state.loadingImplant === 'reverse' && det.kind === 'native' && state.queueTotal > 1) {
+    state.loadingImplant = 'native'; state.loadingRole = 'preop';
+    state.loadingName = `Pre-op${state.loadingName ? ` (${state.loadingName})` : ''}`;
+  }
   const lat = m.image.meta && m.image.meta.laterality;
   const item = {
     uid: ++state.seq, implant: state.loadingImplant || state.implant, role: state.loadingRole || null, kind: 'xray', name: m.sample ? 'Synthetic X-ray' : state.loadingName || 'X-ray', image: m.image, det, sample: !!m.sample,
@@ -161,7 +168,7 @@ function addItem(item) {
     // the pre-operative film was added from the Comparison tab: pair it and stay on the post-operative film
     state.selectNew = false;
     const post = cur();
-    if (post) { post.compareWith = item.uid; post.compareOrder = 'thisLater'; }
+    if (post) { post.compareWith = item.uid; post.compareOrder = 'thisLater'; state.tab = 'compare'; }
     renderItems(); refresh();
     toast('Pre-op film added — check its landmarks on its own tab.');
   } else if (state.cur < 0) {
@@ -300,6 +307,19 @@ function compareCandidates(item) { return state.items.filter((x) => x !== item &
 
 const isPreop = (x) => x.role === 'preop' || typeOf(x) === 'native';
 
+/** Once every film is in: a reverse film and a pre-op film → open their comparison. */
+function autoCompare() {
+  if (state.autoCompared) return;
+  const post = state.items.find((x) => comparable(x) && typeOf(x) === 'reverse');
+  const pre = post && state.items.find((x) => x !== post && comparable(x) && isPreop(x));
+  if (!pre) return;
+  state.autoCompared = true;
+  post.compareWith = pre.uid; post.compareOrder = 'thisLater';
+  select(state.items.indexOf(post));
+  state.tab = 'compare'; refresh();
+  toast('Pre-op and post-op films paired: comparison at matched arm position.');
+}
+
 /**
  * The comparison shown for an item. A reverse film is compared with the pre-operative film by default; the later
  * film's humerus is turned to the earlier film's arm position before anything is measured.
@@ -311,10 +331,12 @@ function comparisonFor(item) {
   const before = others.filter((x) => state.items.indexOf(x) < state.items.indexOf(item));
   const other = others.find((x) => x.uid === item.compareWith)
     || (typeOf(item) === 'reverse' && others.find(isPreop)) || before.pop() || others[0];
-  const preop = isPreop(other) && !isPreop(item);
-  const thisLater = preop || item.compareOrder !== 'thisEarlier';
+  // a pre-operative film is always the earlier one, whichever of the pair is being viewed
+  const itemPre = isPreop(item) && !isPreop(other);
+  const preop = (isPreop(other) && !isPreop(item)) || itemPre;
+  const thisLater = !itemPre && (preop || item.compareOrder !== 'thisEarlier');
   const [e, c] = thisLater ? [other, item] : [item, other];
-  const res = compareFilms(assess(e), assess(c), { months: item.compareMonths > 0 ? item.compareMonths : null, match: true });
+  const res = compareFilms(assess(e), assess(c), { months: item.compareMonths > 0 ? item.compareMonths : null, match: item.compareMatch || 'toEarlier' });
   return { ...res, other, preop, earlierName: e.name, currentName: c.name, thisLater, months: item.compareMonths || '' };
 }
 
@@ -349,8 +371,9 @@ function xrayOverlay(item, b) {
   let ghost = b.ctx.neutral ? { n: b.ctx.neutral, V: b.ctx.L, label: `${Math.abs(b.ctx.neutral.deg).toFixed(0)}°` } : null;
   if (state.tab === 'compare') {
     const cmp = comparisonFor(item);
-    ghost = cmp && cmp.thisLater && cmp.match && cmp.match.ok
-      ? { n: cmp.match, V: rotateHumerus(set.values, cmp.match.centre, cmp.match.deg), label: `${Math.abs(cmp.match.deg).toFixed(0)}° to pre-op` } : null;
+    const n = cmp && cmp.match && cmp.match.ok ? cmp.match.per[cmp.thisLater ? 'current' : 'earlier'] : null;
+    const to = cmp && cmp.match && cmp.match.mode === 'standard' ? 'standard' : cmp && cmp.preop ? (cmp.thisLater ? 'pre-op' : 'post-op') : 'other film';
+    ghost = n ? { n, V: rotateHumerus(set.values, n.centre, n.deg), label: `${Math.abs(n.deg).toFixed(0)}° to ${to}` } : null;
   }
   if (ghost) {
     const G = '#c79bff', { n, V } = ghost;
@@ -988,7 +1011,11 @@ function setImplant(id, lock = true) {
 function bind() {
   for (const t of document.querySelectorAll('.type')) t.addEventListener('click', () => setImplant(t.dataset.implant));
   $('implant').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setImplant(b.dataset.implant); });
-  document.querySelector('.panel').addEventListener('click', (e) => { if (e.target.closest('[data-act="add-preop"]')) $('in-preop').click(); });
+  document.querySelector('.panel').addEventListener('click', (e) => {
+    if (e.target.closest('[data-act="add-preop"]')) $('in-preop').click();
+    const mb = e.target.closest('[data-cmp-match]');
+    if (mb && cur()) { cur().compareMatch = mb.dataset.cmpMatch; refresh(); }
+  });
   $('in-preop').addEventListener('change', (e) => { addFiles(e.target.files, 'preop'); e.target.value = ''; });
   $('calib').addEventListener('click', (e) => { const b = e.target.closest('[data-neutral]'); if (b) { state.neutral = b.dataset.neutral; refresh(); } });
   const drop = $('drop');
