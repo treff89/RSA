@@ -58,23 +58,9 @@
     </div>
     <div id="intro-error" class="alert error" hidden></div>
     </div>
-    <figure class="intro-figure" aria-label="A reverse shoulder replacement radiograph with the lateralisation and distalisation shoulder angles drawn on it">
-      <svg viewBox="0 0 275 400" role="img">
-        <title>Lateralisation (LSA) and distalisation (DSA) shoulder angles on a reverse shoulder radiograph</title>
-        <image href="img/rsa-ap.jpg" x="0" y="0" width="275" height="400"/>
-        <!-- landmarks placed by hand on this film: lateral acromion tip, superior glenoid tubercle, top and most lateral
-             point of the greater tuberosity -->
-        <path class="ill-lsa" d="M197 57 L115 117 M197 57 L231 155"/>
-        <path class="ill-dsa" d="M115 117 L197 57 M115 117 L213 118"/>
-        <path class="ill-arc-lsa" d="M179.2 70.0 A22 22 0 0 0 204.2 77.8"/>
-        <path class="ill-arc-dsa" d="M142.4 96.9 A34 34 0 0 1 149.0 117.3"/>
-        <g class="ill-pt"><circle cx="197" cy="57" r="3"/><circle cx="115" cy="117" r="3"/><circle cx="231" cy="155" r="3"/><circle cx="213" cy="118" r="3"/></g>
-        <text class="ill-lab lsa" x="206" y="42">LSA ≈ 73°</text>
-        <text class="ill-lab dsa" x="14" y="92">DSA ≈ 37°</text>
-        <text class="ill-small" x="200" y="178">tuberosity</text>
-        <text class="ill-small" x="128" y="44">acromion</text>
-      </svg>
-      <figcaption>The lateralisation and distalisation shoulder angles, measured automatically on every reverse film — and compared with the pre-op film at the same arm position.</figcaption>
+    <figure class="intro-figure">
+      <a href="img/lsa-mdsa.jpg" target="_blank" rel="noopener" title="Open full size"><img src="img/lsa-mdsa.jpg" width="662" height="424" alt="Two copies of a reverse shoulder radiograph. Left: the lateralisation shoulder angle, at the lateral border of the acromion, between lines to the superior glenoid tubercle and to the most lateral point of the greater tuberosity. Right: the modified distalisation shoulder angle, at the superior glenoid tubercle, between lines to the lateral acromion and to the medial end of the humeral osteotomy."></a>
+      <figcaption>Lateralisation (LSA) and distalisation (mDSA) shoulder angles, as drawn by Yanagi et al. 2026 (CC BY 4.0). RSA Check finds these landmarks automatically on every reverse film (it reports the DSA, to the top of the tuberosity) and compares them with the pre-op film at the same arm position.</figcaption>
     </figure>
     </div>
   </section>
@@ -187,7 +173,7 @@
 <footer>
   <span>RSA Check — runs entirely in your browser. No account, no upload, no tracking.</span>
   <span>Not a medical device.</span>
-  <details class="credits"><summary>Image credits</summary>Radiographs on the start page are from Wikimedia Commons: Hellerhoff (CC BY-SA 3.0 / 4.0), KChri75 (CC BY-SA 4.0), Lucien Monfils (CC BY-SA 3.0), and Mattiassich G, Marcovici LL, Krifter RM et al. (CC BY 2.0). Cropped, contrast-adjusted and shown faded; the same licences apply to these derivatives.</details>
+  <details class="credits"><summary>Image credits</summary>Radiographs on the start page are from Wikimedia Commons: Hellerhoff (CC BY-SA 3.0 / 4.0), KChri75 (CC BY-SA 4.0), Lucien Monfils (CC BY-SA 3.0), and Mattiassich G, Marcovici LL, Krifter RM et al. (CC BY 2.0) — cropped, contrast-adjusted and shown faded; the same licences apply to these derivatives. Angle diagram: Yanagi E, Hirakawa Y, Manaka T et al., J Shoulder Elbow Arthroplasty 2026, doi 10.1016/j.jsea.2026.100045, Figure 1 (CC BY 4.0), unchanged.</details>
 </footer>
 <div id="toast" class="toast" hidden></div>
 <script src="app.js?v=%APP_HASH%" defer></script>

@@ -343,7 +343,9 @@ function comparisonFor(item) {
   const thisLater = !itemPre && (preop || item.compareOrder !== 'thisEarlier');
   const [e, c] = thisLater ? [other, item] : [item, other];
   const res = compareFilms(assess(e), assess(c), { months: item.compareMonths > 0 ? item.compareMonths : null, match: item.compareMatch || 'toEarlier' });
-  return { ...res, other, preop, earlierName: e.name, currentName: c.name, thisLater, months: item.compareMonths || '' };
+  let ghost = false;
+  try { ghost = item.kind === 'xray' && other.kind === 'xray' && other.lateralSign === item.lateralSign && !!scapulaMap(lmSet(other), lmSet(item)); } catch { /* no ghost */ }
+  return { ...res, other, preop, earlierName: e.name, currentName: c.name, thisLater, months: item.compareMonths || '', ghost };
 }
 
 /** Comparisons the reader asked for (opened the Compare tab on), for the report. */
@@ -352,6 +354,64 @@ function comparisons() {
 }
 
 // ───────────────────────── overlays: radiograph ─────────────────────────
+const SCAPULAR = ['sgt', 'igr', 'acr', 'acu'];
+
+/**
+ * Similarity transform (rotation, scale, shift) taking one film's scapular landmarks onto another's, least squares
+ * (Umeyama). null with fewer than three shared landmarks, mirrored films, or a poor fit.
+ */
+function scapulaMap(from, to) {
+  const ids = SCAPULAR.filter((id) => from.values[id] && from.values[id].x !== undefined && to.values[id] && to.values[id].x !== undefined);
+  if (ids.length < 3) return null;
+  const P = ids.map((id) => from.values[id]), Q = ids.map((id) => to.values[id]);
+  const mean = (A) => ({ x: A.reduce((t, v) => t + v.x, 0) / A.length, y: A.reduce((t, v) => t + v.y, 0) / A.length });
+  const pc = mean(P), qc = mean(Q);
+  let a = 0, b = 0, pp = 0;
+  for (let i = 0; i < P.length; i++) {
+    const px = P[i].x - pc.x, py = P[i].y - pc.y, qx = Q[i].x - qc.x, qy = Q[i].y - qc.y;
+    a += px * qx + py * qy; b += px * qy - py * qx; pp += px * px + py * py;
+  }
+  const m = Math.hypot(a, b);
+  if (!(pp > 0 && m > 0)) return null;
+  const sc = m / pp, c = a / m, sn = b / m;
+  const f = (v) => ({ x: qc.x + sc * (c * (v.x - pc.x) - sn * (v.y - pc.y)), y: qc.y + sc * (sn * (v.x - pc.x) + c * (v.y - pc.y)) });
+  const rms = Math.sqrt(P.reduce((t, v, i) => { const w = f(v); return t + (w.x - Q[i].x) ** 2 + (w.y - Q[i].y) ** 2; }, 0) / P.length);
+  const gh = to.values.sgt && to.values.igr ? Math.hypot(to.values.sgt.x - to.values.igr.x, to.values.sgt.y - to.values.igr.y) : 0;
+  if (gh > 0 && rms > 0.35 * gh) return null;
+  return { f, scale: sc, rms, n: ids.length };
+}
+
+/**
+ * Comparison tab: the other film's humerus (traced outline, head or glenosphere-side landmarks, shaft line) drawn
+ * over this film, aligned on the scapula and turned with the arm-position match, so the two humeri can be seen
+ * at the same arm position.
+ */
+function otherHumerus(item, set) {
+  const cmp = comparisonFor(item);
+  if (!cmp || !cmp.other || cmp.other.kind !== 'xray' || cmp.other.lateralSign !== item.lateralSign) return [];
+  const o = cmp.other, os = lmSet(o), op = proto(o);
+  const T = scapulaMap(os, set);
+  if (!T) return [];
+  const n = cmp.match && cmp.match.ok ? cmp.match.per[cmp.thisLater ? 'earlier' : 'current'] : null;
+  const V = n ? rotateHumerus(os.values, n.centre, n.deg) : os.values;
+  const turn = (pls) => (n ? rotatePolylines(pls, n.centre, n.deg) : pls);
+  const C = '#5fd4c4', out = [];
+  const hum = o.det && o.det.humerus;
+  if (hum) for (const pl of turn([...(hum.outline || []), ...(hum.metal || [])])) if (pl.length > 1) out.push({ type: 'poly', pts: pl.map((q) => T.f(Array.isArray(q) ? { x: q[0], y: q[1] } : q)), closed: false, color: C, width: 2, alpha: 0.85 });
+  for (const lm of op.landmarks) {
+    const v = V[lm.id];
+    if (!v || !HUMERAL.has(lm.id)) continue;
+    if (lm.kind === 'point') out.push({ type: 'circle', c: T.f(v), r: 5, color: C, width: 2, alpha: 0.95, screen: true });
+    else if (lm.kind === 'line') out.push({ type: 'line', a: T.f(v.a), b: T.f(v.b), color: C, width: lm.id === 'stem' || lm.id === 'hcl' ? 2 : 1.3, dash: true, alpha: 0.9 });
+    else if (lm.kind === 'circle') out.push({ type: 'circle', c: T.f({ x: v.cx, y: v.cy }), r: v.r * T.scale, color: C, width: 1.8, dash: true, alpha: 0.9 });
+  }
+  if (out.length) {
+    const lab = out.find((x) => x.type === 'circle' && !x.screen) || out.find((x) => x.type === 'line');
+    if (lab) lab.label = `${cmp.thisLater ? 'pre-op' : 'post-op'} humerus`;
+  }
+  return out;
+}
+
 function lmColor(id, set) { return id === state.active ? ACTIVE : LM_COLOR[set.state[id]] || LM_COLOR.manual; }
 
 function xrayOverlay(item, b) {
@@ -381,6 +441,7 @@ function xrayOverlay(item, b) {
     const to = cmp && cmp.match && cmp.match.mode === 'standard' ? 'standard' : cmp && cmp.preop ? (cmp.thisLater ? 'pre-op' : 'post-op') : 'other film';
     ghost = n ? { n, V: rotateHumerus(set.values, n.centre, n.deg), label: `${Math.abs(n.deg).toFixed(0)}° to ${to}` } : null;
   }
+  if (state.tab === 'compare') { try { shapes.push(...otherHumerus(item, set)); } catch { /* no ghost of the other film */ } }
   if (ghost) {
     const G = '#c79bff', { n, V } = ghost;
     const hum = item.det && item.det.humerus;
@@ -1104,8 +1165,26 @@ function bind() {
   $('btn-redetect').addEventListener('click', redetect);
   $('train-on').addEventListener('change', (e) => {
     training.setOn(e.target.checked);
+    // landmarks already moved before training was switched on count too: every open film, every bony landmark the
+    // reader has moved away from its automatic position (or placed where none was found)
+    let n = 0;
+    if (e.target.checked) {
+      for (const it of state.items) {
+        if (it.kind !== 'xray') continue;
+        const p = proto(it), kind = training.kindOf(p.id), set = it.lm[p.id];
+        if (!kind || !set) continue;
+        const est = (it.det && it.det.estimates && it.det.estimates[p.id]) || {};
+        for (const [id, v] of Object.entries(set.values)) {
+          if (set.state[id] !== 'manual' || !v || v.x === undefined) continue;
+          const e0 = est[id];
+          if (e0 && e0.x !== undefined && Math.hypot(v.x - e0.x, v.y - e0.y) < 2) continue;   // confirmed, not moved
+          if (training.record(it.film, kind, id, v, set.values, it.lateralSign, it.image)) n++;
+        }
+      }
+    }
     refresh();
-    toast(e.target.checked ? 'Training mode on: drag any misplaced landmark to its true position and the correction is learned.' : 'Training mode off: corrections are no longer recorded (the ones saved are still used).');
+    toast(!e.target.checked ? 'Training mode off: corrections are no longer recorded (the ones saved are still used).'
+      : `Training mode on${n ? `: ${n} adjustment${n === 1 ? '' : 's'} you had already made ${n === 1 ? 'was' : 'were'} saved` : ''}. Drag any misplaced landmark to its true position and the correction is learned.`);
   });
   $('train-export').addEventListener('click', () => save('rsa-check-training.json', 'application/json', training.exportText()));
   $('train-import').addEventListener('click', () => $('in-train').click());

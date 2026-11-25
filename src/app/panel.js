@@ -210,13 +210,15 @@ export function compareView(c, candidates, isReverse) {
     ? `<p class="cmp-match">${m.mode === 'standard'
       ? `Both humeri turned to ${K} ${m.want.toFixed(0)}° (${A[0]} ${pos(m.before.earlier)}, ${A[1]} ${pos(m.before.current)} as taken) — purple outline.`
       : `${m.mode === 'toCurrent' ? A[0] : A[1]} humerus turned ${Math.abs((m.per.current || m.per.earlier).deg).toFixed(0)}° to the ${m.mode === 'toCurrent' ? A[1] : A[0]} arm position (${K} ${m.want.toFixed(0)}°)${(m.mode === 'toCurrent') !== c.thisLater ? ' — purple outline' : ''}.`}</p>` : '';
+  const other = c.thisLater ? A[0] : A[1];
+  const ghostLine = !c.ghost ? '' : `<p class="cmp-ghost"><span class="sw" aria-hidden="true"></span>Teal outline: the ${other} humerus${m && m.ok ? ' at the matched arm position' : ''}, laid over this film by aligning the two scapulae (glenoid and acromion points).</p>`;
   const keyCards = (c.key || []).map((k) => keyCard(k, c)).join('');
   const row = (r) => `<tr class="${r.status}"><td><b>${esc(r.label)}</b>${r.say ? `<br><span class="cmp-say">${esc(r.say)}</span>` : ''}</td><td class="num">${esc(r.earlierText)}</td><td class="num">${esc(r.currentText)}</td><td class="num">${chip(r.status, r.changeText)}</td></tr>`;
   const frow = (f) => `<tr class="${f.status}"><td><b>${esc(f.label)}</b></td><td>${esc(f.earlierText)}</td><td>${esc(f.currentText)}</td><td>${chip(f.status, f.status === 'good' ? 'same' : 'changed')}</td></tr>`;
   const table = c.rows.length || c.findings.length
     ? `<table class="cmp"><thead><tr><th></th><th>${c.preop ? 'Pre-op' : 'Earlier'}</th><th>${c.preop ? 'Post-op' : 'Current'}</th><th>Change</th></tr></thead><tbody>${c.rows.map(row).join('')}${c.findings.map(frow).join('')}</tbody></table>`
     : '<p class="note">Place the same landmarks on both films to compare them.</p>';
-  return `${form}${seg}${matchLine}
+  return `${form}${seg}${matchLine}${ghostLine}
     ${keyCards ? `<div class="cmp-key">${keyCards}</div>` : ''}
     ${c.notes.map((n) => `<p class="alert warn">${esc(n)}</p>`).join('')}
     ${table}

@@ -223,7 +223,10 @@ MIT licence.
 
 ## Image credits
 
-The radiographs on the start page (background and the annotated reverse film) are from Wikimedia Commons, cropped and
-contrast-adjusted: Hellerhoff (CC BY-SA 3.0 / 4.0), KChri75 (CC BY-SA 4.0), Lucien Monfils (CC BY-SA 3.0), and
-Mattiassich G, Marcovici LL, Krifter RM et al. (CC BY 2.0). They are in `src/app/static/img/` under those licences, not
+The faded radiographs in the start-page background are from Wikimedia Commons, cropped and contrast-adjusted:
+Hellerhoff (CC BY-SA 3.0 / 4.0), KChri75 (CC BY-SA 4.0), Lucien Monfils (CC BY-SA 3.0), and Mattiassich G, Marcovici LL,
+Krifter RM et al. (CC BY 2.0). The angle diagram is Figure 1 of Yanagi E, Hirakawa Y, Manaka T, et al. Radiographic
+comparison of humeral and glenoid lateralization and distalization between onlay and inlay reverse total shoulder
+arthroplasty designs in Japanese shoulders. J Shoulder Elbow Arthroplasty 2026;10:100045
+(doi:10.1016/j.jsea.2026.100045), CC BY 4.0, unchanged. All are in `src/app/static/img/` under those licences, not
 the MIT licence of the code. The training corpus itself is not redistributed.

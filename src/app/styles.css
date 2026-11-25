@@ -87,21 +87,12 @@ main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .intro-text { background: rgba(15,19,24,.82); border: 1px solid var(--line); border-radius: 14px; padding: 26px 26px 22px; backdrop-filter: blur(2px); }
 .drop-hint { font-size: 12.5px; color: var(--muted); margin: -4px auto 12px; max-width: 460px; }
 .credits { font-size: 11.5px; } .credits summary { cursor: pointer; }
-.intro-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 48px; align-items: start; }
+.intro-grid { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 48px; align-items: start; }
 .type-detail { color: var(--muted); font-size: 13.5px; margin-top: 10px; min-height: 2.6em; max-width: 40em; }
 .intro-figure { margin: 6px 0 0; color: var(--muted); }
-.intro-figure svg { width: 100%; height: auto; display: block; border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+.intro-figure img { width: 100%; height: auto; display: block; border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.5); }
 .intro-figure figcaption { font-size: 12.5px; color: var(--muted); background: rgba(15,19,24,.8); border-radius: 8px; padding: 6px 9px; margin-top: 8px; line-height: 1.45; }
-.ill-lsa, .ill-dsa { fill: none; stroke-width: 1.8; }
-.ill-lsa, .ill-arc-lsa { stroke: var(--accent); }
-.ill-dsa, .ill-arc-dsa { stroke: #6aa9f2; }
-.ill-arc-lsa, .ill-arc-dsa { fill: none; stroke-width: 2.2; }
-.ill-pt circle { fill: #e6edf3; }
-.ill-lab { font: 600 12px var(--sans, system-ui, sans-serif); }
-.ill-lab.lsa { fill: var(--accent); } .ill-lab.dsa { fill: #6aa9f2; }
-.ill-small { font: 10.5px var(--sans, system-ui, sans-serif); fill: #e6edf3; paint-order: stroke; stroke: rgba(0,0,0,.7); stroke-width: 3px; }
-.ill-lab { paint-order: stroke; stroke: rgba(0,0,0,.75); stroke-width: 3px; }
-@media (max-width: 860px) { .intro-grid { grid-template-columns: 1fr; gap: 24px; } .intro-figure { max-width: 320px; } }
+@media (max-width: 860px) { .intro-grid { grid-template-columns: 1fr; gap: 24px; } .intro-figure { max-width: 480px; } }
 #intro h1 { font-size: 24px; font-weight: 600; line-height: 1.25; }
 .lede { color: var(--muted); font-size: 15px; margin-top: 10px; max-width: 46em; }
 .drop {
@@ -327,8 +318,8 @@ body.working { height: 100vh; overflow: hidden; }
 /* landmark list */
 .lm-tools { display: flex; gap: 6px; flex-wrap: wrap; }
 .train { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
-.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; font-size: 13px; }
-.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch { position: relative; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; font-size: 13px; }
+.switch input { position: absolute; left: 0; top: 0; margin: 0; opacity: 0; width: 1px; height: 1px; }
 .switch .knob { width: 32px; height: 18px; border-radius: 9px; background: var(--card-2); border: 1px solid var(--line); position: relative; transition: background .15s; }
 .switch .knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
 .switch input:checked + .knob { background: var(--accent); border-color: var(--accent); }
@@ -440,6 +431,8 @@ body.working { height: 100vh; overflow: hidden; }
 .cmp-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--muted); }
 .cmp-form input[type=number] { width: 80px; }
 .cmp-match { font-size: 13px; color: #c79bff; margin: 4px 0; }
+.cmp-ghost { font-size: 13px; color: #5fd4c4; margin: 2px 0 6px; }
+.cmp-ghost .sw { display: inline-block; width: 14px; height: 0; border-top: 2px solid #5fd4c4; vertical-align: middle; margin-right: 6px; }
 .cmp-matchsel { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; font-size: 12.5px; color: var(--muted); flex-wrap: wrap; }
 .cmp-key { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
 .kcard { border: 1px solid var(--line); border-left: 4px solid var(--info); border-radius: 10px; padding: 10px 11px; background: #131921; }
