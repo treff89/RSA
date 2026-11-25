@@ -289,3 +289,16 @@ test('population reference range grades metrics with no cut-off and adds a z-sco
   near(n.lo, 53 - 7.84, 1e-9); assert.equal(n.inside, false); near(n.z, 2.25, 1e-9);
   assert.match(n.text, /Outside the range of 95%/);
 });
+
+test('training: adapt() moves a learned landmark towards reader corrections, weighted', async () => {
+  const { adapt } = await import('../../src/detect/learned.js');
+  const model = { landmarks: { acr: { frame: 'scap', method: 'prior', q: [0, 0], sd: [0.2, 0.2], n: 9 }, gts: { frame: 'hum', method: 'heuristic', q: [1, 1], sd: [0.2, 0.2] } }, lines: {} };
+  const rec = [{ type: 'reverse', id: 'acr', frame: 'scap', q: [1, 2] }, { type: 'hemi', id: 'acr', frame: 'scap', q: [9, 9] }, { type: 'reverse', id: 'gts', frame: 'hum', q: [2, 2] }];
+  const a = adapt(model, rec, 'reverse', 3);
+  assert.deepEqual(a.landmarks.acr.q, [0.25, 0.5]);            // (9·0 + 3·1) / 12, (9·0 + 3·2) / 12
+  assert.equal(a.landmarks.gts.method, 'heuristic');            // fewer than three corrections: left alone
+  assert.deepEqual(model.landmarks.acr.q, [0, 0]);              // input untouched
+  const b = adapt(model, [1, 2, 3].map(() => ({ type: 'reverse', id: 'gts', frame: 'hum', q: [2, 3] })), 'reverse');
+  assert.equal(b.landmarks.gts.method, 'prior');
+  assert.deepEqual(b.landmarks.gts.q, [2, 3]);
+});

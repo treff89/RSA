@@ -80,7 +80,8 @@ analysed as that type. On a radiograph **every landmark is placed automatically*
   published films). Figure margins are peeled off, coloured annotations and viewer text are painted out, and label
   boxes are ignored. The stem is traced on the most elongated metal body; the glenosphere or head is the best
   convex arc of the metal outline that is anatomically placed (beyond the stem for a glenosphere, on it for a head);
-  the glenosphere face comes from the implant's own straight back edge.
+  when the outline is lobed (a lateralised glenosphere overlapped by the humeral tray) a looser second search is
+  made and the result flagged low-confidence. The glenosphere face comes from the implant's own straight back edge.
 * **Bony landmarks are learned.** Positions of the acromion, glenoid rim, tuberosity, fossa floor and best-fit-circle
   points were learned from annotated radiographs, relative to the implant (`src/detect/model.json`, written by
   `test/corpus/learn.mjs`). Each landmark uses whichever method scored best in leave-one-out testing: its learned
@@ -88,6 +89,11 @@ analysed as that type. On a radiograph **every landmark is placed automatically*
   drawn dashed and listed as "Estimated — check"; measurements resting on them are **provisional** until confirmed.
 * **Correct the implant and the rest follows.** Dragging or re-placing the glenosphere, its face, the head or the
   stem re-places every bony landmark that is still an estimate; anything you placed or confirmed stays where it is.
+* **Training mode teaches it your way.** Switch on *Training mode* in the Landmarks tab and every bony landmark you
+  drag is recorded in this browser (localStorage): its corrected position in the implant's frame and a small
+  normalised appearance patch — no image, nothing identifying. Later films are placed with the model adapted to your
+  corrections (each counts three times a corpus film). *Export corrections* writes them to a file;
+  `node test/corpus/merge-training.mjs <files…>` folds such files into the shipped model for everyone.
 * **CT**: the implant and humeral head are detected; bony CT landmarks are placed by you.
 * **Not yet learned** (placed by you): the deltoid tuberosity, the humeral shaft diameter and centre line, and the four
   Y-view points. The supraspinatus fossa line on hemi and native films and the native acromial undersurface line start
@@ -172,7 +178,8 @@ shoulder-muscle model is licence-gated and has no in-browser build. So the app r
    withheld.
 3. Landmarks are placed automatically. Check the implant first (glenosphere or head circle, face, stem) — correcting
    it re-places the bony estimates — then drag any bony landmark that is off (a magnifier appears) and press
-   *Confirm estimates*. *Place the next one* walks through anything that could not be placed.
+   *Confirm estimates*. *Place the next one* walks through anything that could not be placed. With *Training mode*
+   on, those corrections are learned for the next film.
 4. Read **Measurements** (click a row to highlight its construction lines) and **Appraisal**; export the report as
    text, the raw data as CSV, everything including landmark coordinates as JSON, or the annotated image.
 
@@ -202,7 +209,8 @@ npm run e2e
   implant-choice synthesis, and the reference list.
 * `src/app/` — viewer (2D and multi-planar), panel, report builders; `src/worker/` — the Web Worker.
 * `test/corpus/` evaluates the pipeline on a local corpus of real films and learns the landmark model
-  (`eval.mjs`, `learn.mjs`, `draw.py`); the corpus itself is not distributed.
+  (`eval.mjs`, `learn.mjs`, `draw.py`) and merges exported training-mode corrections into it (`merge-training.mjs`);
+  the corpus itself is not distributed.
 * `npm test` runs 114 unit tests (measurement geometry on both sides and with a tilted patient, detection against
   phantom truth, anonymisation, reports). `npm run e2e` drives the built site in headless Chromium (needs Playwright):
   all six study types, the Y-view, a DICOM file with planted identifiers, landmark placement, muscle outlines, two films

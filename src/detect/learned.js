@@ -170,3 +170,36 @@ export function placeLearned(g, F, model) {
   }
   return out;
 }
+
+/**
+ * Training mode: fold a reader's own corrections into a model. records = [{ type, id, frame, q:[x,y], patch? }],
+ * q in frame units, patch = the normalised local appearance at the corrected position (see patch()). Each
+ * correction counts `weight` times as much as one annotated corpus film. Positions move to the weighted mean,
+ * templates to the weighted mean appearance; a landmark the model left to the hand-written estimate becomes a
+ * learned one once there are three corrections. Returns a new model; the input is not changed.
+ */
+export function adapt(model, records, type, weight = 3) {
+  if (!model || !records || !records.length) return model;
+  const out = { ...model, landmarks: { ...model.landmarks } };
+  const by = new Map();
+  for (const r of records) {
+    if (r.type !== type || !Array.isArray(r.q) || !out.landmarks[r.id] || out.landmarks[r.id].frame !== r.frame) continue;
+    if (!by.has(r.id)) by.set(r.id, []);
+    by.get(r.id).push(r);
+  }
+  for (const [id, rs] of by) {
+    const m = out.landmarks[id];
+    const n0 = m.method === 'heuristic' ? 0 : Math.max(1, m.n || 1), w = weight * rs.length, W = n0 + w;
+    if (m.method === 'heuristic' && rs.length < 3) continue;
+    const q = [0, 1].map((k) => (n0 * m.q[k] + weight * rs.reduce((s, r) => s + r.q[k], 0)) / W);
+    const nm = { ...m, q, n: (m.n || 0) + rs.length, adapted: rs.length };
+    if (m.method === 'heuristic') nm.method = m.template ? 'template' : 'prior';
+    const ps = rs.filter((r) => Array.isArray(r.patch) && m.template && r.patch.length === m.template.length);
+    if (ps.length && nm.method === 'template') {
+      const wp = weight * ps.length, Wp = n0 + wp;
+      nm.template = m.template.map((t, k) => (n0 * t + weight * ps.reduce((s, r) => s + r.patch[k], 0)) / Wp);
+    }
+    out.landmarks[id] = nm;
+  }
+  return out;
+}

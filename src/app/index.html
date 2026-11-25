@@ -62,16 +62,17 @@
       <svg viewBox="0 0 275 400" role="img">
         <title>Lateralisation (LSA) and distalisation (DSA) shoulder angles on a reverse shoulder radiograph</title>
         <image href="img/rsa-ap.jpg" x="0" y="0" width="275" height="400"/>
-        <!-- landmarks placed by hand on this film: lateral acromion, superior glenoid tubercle, top and lateral tuberosity -->
-        <path class="ill-lsa" d="M165 58 L93 97 M165 58 L196 150"/>
-        <path class="ill-dsa" d="M93 97 L165 58 M93 97 L185 127"/>
-        <path class="ill-arc-lsa" d="M145.7 68.5 A22 22 0 0 0 172 78.9"/>
-        <path class="ill-arc-dsa" d="M119.4 82.7 A30 30 0 0 1 121.5 106.3"/>
-        <g class="ill-pt"><circle cx="165" cy="58" r="3"/><circle cx="93" cy="97" r="3"/><circle cx="196" cy="150" r="3"/><circle cx="185" cy="127" r="3"/></g>
-        <text class="ill-lab lsa" x="172" y="44">LSA ≈ 80°</text>
-        <text class="ill-lab dsa" x="18" y="80">DSA ≈ 47°</text>
-        <text class="ill-small" x="200" y="162">tuberosity</text>
-        <text class="ill-small" x="200" y="62">acromion</text>
+        <!-- landmarks placed by hand on this film: lateral acromion tip, superior glenoid tubercle, top and most lateral
+             point of the greater tuberosity -->
+        <path class="ill-lsa" d="M197 57 L115 117 M197 57 L231 155"/>
+        <path class="ill-dsa" d="M115 117 L197 57 M115 117 L213 118"/>
+        <path class="ill-arc-lsa" d="M179.2 70.0 A22 22 0 0 0 204.2 77.8"/>
+        <path class="ill-arc-dsa" d="M142.4 96.9 A34 34 0 0 1 149.0 117.3"/>
+        <g class="ill-pt"><circle cx="197" cy="57" r="3"/><circle cx="115" cy="117" r="3"/><circle cx="231" cy="155" r="3"/><circle cx="213" cy="118" r="3"/></g>
+        <text class="ill-lab lsa" x="206" y="42">LSA ≈ 73°</text>
+        <text class="ill-lab dsa" x="14" y="92">DSA ≈ 37°</text>
+        <text class="ill-small" x="200" y="178">tuberosity</text>
+        <text class="ill-small" x="128" y="44">acromion</text>
       </svg>
       <figcaption>The lateralisation and distalisation shoulder angles, measured automatically on every reverse film — and compared with the pre-op film at the same arm position.</figcaption>
     </figure>
@@ -139,6 +140,16 @@
           <button class="btn small ghost" id="btn-demo" hidden title="Synthetic example only: fills in the remaining landmarks at their known positions">Fill in the rest (example)</button>
         </div>
         <div id="lm-list" class="lm-list"></div>
+        <div id="train" class="train" hidden>
+          <label class="switch"><input type="checkbox" id="train-on" role="switch"><span class="knob" aria-hidden="true"></span>Training mode</label>
+          <p id="train-info" class="train-info"></p>
+          <div class="train-actions">
+            <button class="link" id="train-export" title="Your corrections as a file (no images, no patient details) — send it in to improve the detector for everyone">Export corrections</button>
+            <button class="link" id="train-import">Import</button>
+            <button class="link" id="train-clear">Delete saved</button>
+          </div>
+          <input type="file" id="in-train" accept=".json,application/json" hidden>
+        </div>
       </div>
       <div class="card tabpane" id="tab-measure" hidden>
         <div class="card-head"><h2>Measurements</h2><span class="legend"><span class="st good">in range</span><span class="st borderline">borderline</span><span class="st out">outside</span><span class="st info">descriptive</span></span></div>

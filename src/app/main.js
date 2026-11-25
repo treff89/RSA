@@ -15,6 +15,7 @@ import MODEL from '../detect/model.json' with { type: 'json' };
 import { MUSCLES, sampleRoi, roiStats, muscleResults } from '../measure/muscle.js';
 import { detectHeadSphere } from '../detect/ct.js';
 import * as panel from './panel.js';
+import * as training from './training.js';
 import { buildText, buildCsv, buildJson } from './report.js';
 
 const $ = (id) => document.getElementById(id);
@@ -148,6 +149,7 @@ function onXray(m) {
     view: /AX/i.test((m.image.meta && m.image.meta.viewPosition) || '') ? 'axillary' : 'ap',
     lateralSign: lateralSignOf(det, lat),
     calib: { size: null }, lm: {}, findings: {}, rimAngle: {}, truth: m.truth || null,
+    film: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
   };
   addItem(item);
 }
@@ -208,6 +210,10 @@ function seed(item) {
     const s = seedXray(p, d);
     Object.assign(set.values, s.values); Object.assign(set.state, s.state);
     if (s.prior) set.prior = s.prior;
+    const kind = training.kindOf(p.id);
+    // landmarks this reader has corrected before are placed with the model adapted to those corrections
+    const ids = kind ? training.adaptedIds(kind) : null;
+    if (ids && ids.size) { try { relandmark(item, true, ids); } catch { /* keep the detector's estimates */ } }
   } else {
     if (p.id === 'rsa-ct' && d.reverse) {
       const g = d.reverse.glenosphere;
@@ -459,6 +465,12 @@ function dragXray(key, pt, phase) {
     cur().rimAngle[id] = Math.atan2(pt.y - v.cy, pt.x - v.cx);
   }
   set.state[id] = 'manual';
+  if (phase !== 'move' && !part && training.isOn()) {
+    const item = cur(), kind = training.kindOf(proto(item).id);
+    if (kind && training.record(item.film, kind, id, pt, set.values, item.lateralSign, item.image)) {
+      toast(`Correction saved for training (${training.count(kind)} for ${kind === 'hemi' ? 'hemiarthroplasty' : kind} films).`);
+    }
+  }
   if (phase !== 'move' && (id === 'sgt' || id === 'igr')) ssfPrior(proto(), set, cur().lateralSign);
   refresh({ light: phase === 'move' });
   if (phase !== 'move' && IMPLANT_LM.has(id)) relandmark();
@@ -470,12 +482,12 @@ const IMPLANT_LM = new Set(['gs', 'face', 'stem', 'head']);
  * The reader has corrected the implant: place the bony landmarks again around it with the learned model. Only
  * landmarks that are still estimates (or missing) move; anything the reader placed or confirmed stays put.
  */
-function relandmark() {
-  const item = cur();
+function relandmark(item = cur(), quiet = false, only = null) {
   if (!item || item.kind !== 'xray') return;
   const p = proto(item), set = lmSet(item);
-  const kind = p.id === 'rsa-ap' ? 'reverse' : p.id === 'pyc-ap' ? 'hemi' : p.id === 'native-ap' ? 'native' : null;
-  const m = kind && MODEL.types && MODEL.types[kind];
+  const kind = training.kindOf(p.id);
+  // the shipped model, adapted to this reader's own corrections when training mode has recorded any
+  const m = kind && training.modelFor(kind);
   const c = kind === 'reverse' ? set.values.gs : set.values.head;
   if (!m || !c) return;
   const A = (q) => [q.x, q.y];
@@ -487,12 +499,13 @@ function relandmark() {
   let moved = 0;
   for (const lm of p.landmarks) {
     const e = est[lm.id];
-    if (!e || IMPLANT_LM.has(lm.id) || set.state[lm.id] === 'manual' || set.state[lm.id] === 'auto') continue;
+    if (!e || IMPLANT_LM.has(lm.id) || set.state[lm.id] === 'manual' || set.state[lm.id] === 'auto' || (only && !only.has(lm.id))) continue;
     set.values[lm.id] = e.a ? { a: { x: e.a[0], y: e.a[1] }, b: { x: e.b[0], y: e.b[1] } } : { x: e.x, y: e.y };
     set.state[lm.id] = 'estimated';
     moved++;
   }
   ssfPrior(p, set, item.lateralSign);
+  if (quiet) return;
   if (moved) { refresh(); toast(`${moved} estimated landmark${moved === 1 ? '' : 's'} re-placed around the corrected implant.`); }
 }
 
@@ -843,6 +856,7 @@ function renderPanel(b) {
     $('btn-confirm-all').hidden = !est;
     $('btn-redetect').hidden = item.kind !== 'xray';
     $('btn-demo').hidden = !item.truth || !p.landmarks.some((l) => !set.values[l.id] || set.state[l.id] === 'estimated');
+    renderTraining(item, p);
   } else if (state.tab === 'measure') {
     $('m-list').innerHTML = panel.measurementList(b.results, state.selMetric);
     $('f-list').innerHTML = panel.findingsForm(p, item.findings[p.id], b.findings);
@@ -901,6 +915,19 @@ function refresh(opts = {}) {
 }
 
 function setTab(tab) { state.tab = tab; refresh(); }
+
+function renderTraining(item, p) {
+  const kind = item.kind === 'xray' ? training.kindOf(p.id) : null;
+  $('train').hidden = !kind;
+  if (!kind) return;
+  $('train-on').checked = training.isOn();
+  const n = training.count(kind), all = training.count();
+  const name = kind === 'hemi' ? 'hemiarthroplasty' : kind;
+  $('train-info').textContent = training.isOn()
+    ? `Drag a misplaced landmark to where it belongs; the correction is learned. ${n} saved for ${name} films${n ? ', used to place landmarks' : ''}.`
+    : n ? `${n} saved corrections for ${name} films are used to place landmarks.` : 'Teach the detector with your own corrections.';
+  $('train-export').hidden = $('train-clear').hidden = !all;
+}
 
 function toast(text) {
   const el = $('toast');
@@ -1075,6 +1102,23 @@ function bind() {
     refresh();
   });
   $('btn-redetect').addEventListener('click', redetect);
+  $('train-on').addEventListener('change', (e) => {
+    training.setOn(e.target.checked);
+    refresh();
+    toast(e.target.checked ? 'Training mode on: drag any misplaced landmark to its true position and the correction is learned.' : 'Training mode off: corrections are no longer recorded (the ones saved are still used).');
+  });
+  $('train-export').addEventListener('click', () => save('rsa-check-training.json', 'application/json', training.exportText()));
+  $('train-import').addEventListener('click', () => $('in-train').click());
+  $('in-train').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try { const n = training.importText(await f.text()); toast(`${n} correction${n === 1 ? '' : 's'} imported.`); refresh(); } catch (err) { toast(err.message || 'Could not read that file.'); }
+  });
+  $('train-clear').addEventListener('click', () => {
+    if (!confirm('Delete every saved landmark correction from this browser?')) return;
+    training.clear(); refresh(); toast('Saved corrections deleted.');
+  });
   $('btn-demo').addEventListener('click', fillFromTruth);
 
   document.querySelector('.panel').addEventListener('click', (e) => {

@@ -711,13 +711,13 @@ function boundary(P, M) {
 }
 
 /** Angular coverage (2° bins) of a circle by outline points whose outward normal is radial. */
-function coverage(B, cx, cy, r, tol) {
+function coverage(B, cx, cy, r, tol, dotMin = 0.8) {
   const bins = new Uint8Array(180);
   const idx = [];
   for (let i = 0; i < B.n; i++) {
     const dx = B.px[i] - cx, dy = B.py[i] - cy, dd = Math.hypot(dx, dy);
     if (Math.abs(dd - r) > tol) continue;
-    if ((dx * B.nx[i] + dy * B.ny[i]) < 0.8 * dd) continue;
+    if ((dx * B.nx[i] + dy * B.ny[i]) < dotMin * dd) continue;
     let a = Math.atan2(dy, dx) * 180 / Math.PI; if (a < 0) a += 360;
     bins[Math.min(179, Math.floor(a / 2))] = 1; idx.push(i);
   }
@@ -772,7 +772,11 @@ function findCircle(P, M, stem, opts, log = () => {}) {
   if (rmax < 2 * rmin) rmax = Math.min(0.35 * short, 2.5 * rmin);
   rmin = Math.max(5, rmin);
   const rng = mulberry32(977);
-  const tol = Math.max(1.2, 0.035 * rmin);
+  // relax: a second pass for lobed outlines (glenosphere overlapped by a lateralised tray, blurred JPEG edges) that
+  // give no clean arc; the tolerance and the arc needed are loosened and the candidates scored down
+  const relax = opts.relax ? 1 : 0;
+  const tol = Math.max(1.2, 0.035 * rmin) * (relax ? 2.5 : 1);
+  const dotMin = relax ? 0.6 : 0.8, degMin = relax ? 45 : 70;
   const cands = [];
   // three outline points at a time; the second and third are drawn near the first, because three points spread
   // over the whole implant almost never lie on the same arc
@@ -795,9 +799,9 @@ function findCircle(P, M, stem, opts, log = () => {}) {
     const r = Math.hypot(ax - ox, ay - oy);
     if (r < rmin || r > rmax) continue;
     // the three samples must themselves lie on a convex metal outline
-    if ((ax - ox) * B.nx[a] + (ay - oy) * B.ny[a] < 0.8 * r || (bx - ox) * B.nx[b] + (by - oy) * B.ny[b] < 0.8 * r || (cx - ox) * B.nx[c] + (cy - oy) * B.ny[c] < 0.8 * r) continue;
-    const cov = coverage(B, ox, oy, r, tol);
-    if (cov.deg < 70) continue;
+    if ((ax - ox) * B.nx[a] + (ay - oy) * B.ny[a] < dotMin * r || (bx - ox) * B.nx[b] + (by - oy) * B.ny[b] < dotMin * r || (cx - ox) * B.nx[c] + (cy - oy) * B.ny[c] < dotMin * r) continue;
+    const cov = coverage(B, ox, oy, r, tol, dotMin);
+    if (cov.deg < degMin) continue;
     cands.push({ cx: ox, cy: oy, r, deg: cov.deg });
   }
   log(`outline ${B.n} px; radius ${rmin.toFixed(1)}–${rmax.toFixed(1)}; ${cands.length} candidates`);
@@ -809,13 +813,13 @@ function findCircle(P, M, stem, opts, log = () => {}) {
     // least-squares polish on the supporting outline points, twice
     let cur = c;
     for (let k = 0; k < 2; k++) {
-      const cov = coverage(B, cur.cx, cur.cy, cur.r, tol);
+      const cov = coverage(B, cur.cx, cur.cy, cur.r, tol, dotMin);
       const pts = [];
       for (const i of cov.idx) pts.push(B.px[i], B.py[i]);
       const fit = pts.length >= 16 ? fitCircle(pts) : null;
       if (fit && fit.r >= rmin * 0.9 && fit.r <= rmax * 1.1) cur = { cx: fit.cx, cy: fit.cy, r: fit.r };
     }
-    const cov = coverage(B, cur.cx, cur.cy, cur.r, tol);
+    const cov = coverage(B, cur.cx, cur.cy, cur.r, tol, dotMin);
     const fl = fill(P, M, cur.cx, cur.cy, cur.r);
     if (fl < 0.7) continue;
     const arc = longestArc(cov.bins);
@@ -831,9 +835,9 @@ function findCircle(P, M, stem, opts, log = () => {}) {
   all.sort((a, b) => b.q - a.q);
   const alts = [];
   for (const c of all) {
-    if (c.run < 60) continue;
+    if (c.run < (relax ? 40 : 60)) continue;
     if (alts.some((a) => Math.hypot(a.cx - c.cx, a.cy - c.cy) < 0.5 * Math.min(a.r, c.r))) continue;
-    c.score = Math.max(0.3, Math.min(0.95, c.run / 190)) * Math.min(1, c.fill / 0.9);
+    c.score = Math.max(0.3, Math.min(0.95, c.run / 190)) * Math.min(1, c.fill / 0.9) * (relax ? 0.7 : 1);
     c.B = B;
     alts.push(c);
     if (alts.length >= 6) break;
@@ -1076,14 +1080,15 @@ export function autoLandmarks(img, opts = {}) {
   else if (opts.metal === 'crisp') M = crispMetalMask(P, log);
   else M = unionMasks(P, crispMetalMask(P, log), watershedMetal(P, log), log);
   M = M || metalMask(P, log) || flatMetalMask(P, log);
-  if (!M) { log('no metal'); return null; }
+  if (!M) { log('no metal'); if (opts.status) opts.status.noMetal = true; return null; }
   addNear(P, M);
   dropLabelBoxes(P, M, log);
-  if (!M.area) { log('only label boxes'); return null; }
+  if (!M.area) { log('only label boxes'); if (opts.status) opts.status.noMetal = true; return null; }
   const stem = traceStem(P, M);
   if (opts.debug) Object.assign(opts.debug, { P, M, stem });
   log(`metal T ${M.T} fraction ${M.fraction.toFixed(3)} stability ${M.stability.toFixed(3)}; stem ${stem ? `wd ${stem.wd.toFixed(1)} len ${stem.len}` : 'none'}`);
   let circle = findCircle(P, M, stem, opts, log);
+  if (!circle && stem && opts.implant === 'reverse') { log('no clean arc: relaxed circle search'); circle = findCircle(P, M, stem, { ...opts, relax: true }, log); }
   if (circle && stem && circle.alts.length) {
     // Choose among the candidate circles with anatomy. Nothing valid sits along the stem (the rounded distal tip
     // is the usual impostor). A prosthetic head rides on the stem's proximal end, centred on its axis; a

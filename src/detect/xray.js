@@ -989,7 +989,7 @@ function discMedian(ctx, cx, cy, r0, r1, skipMetal, M) {
 }
 
 function headInfo(ctx, opts = {}) {
-  const key = `head:${opts.mmPerPx || ctx.mmPerPx || 0}:${opts.rRange || ''}:${opts.frLo || ''}:${opts.frHi || ''}`;
+  const key = `head:${opts.mmPerPx || ctx.mmPerPx || 0}:${opts.rRange || ''}:${opts.frLo || ''}:${opts.frHi || ''}:${opts.noImplant ? 1 : 0}`;
   if (ctx[key] !== undefined) return ctx[key];
   const M = metalInfo(ctx);
   const { f, w, h } = ctx;
@@ -997,7 +997,9 @@ function headInfo(ctx, opts = {}) {
   const [rmin, rmax] = radiusRange(ctx, opts, 17, 32, opts.frLo ?? 0.04, opts.frHi ?? 0.14);
   const res = (ctx[key] = { result: null, stemLike: false });
   let stemBody = null, bodiesInfo = null;
-  if (M.present) {
+  // opts.noImplant: the implant pipeline has already found none, so bright bone (a dense cortex on a high-contrast
+  // film) must not pass for a stem or a reverse prosthesis here
+  if (M.present && !opts.noImplant) {
     bodiesInfo = metalBodies(ctx, M, null);
     for (const b of bodiesInfo.bodies) {
       if (b.length < 0.12 * Math.min(w, h) || b.elong < 2.2) continue;
@@ -1064,7 +1066,7 @@ function headInfo(ctx, opts = {}) {
     if (best && best.score >= 0.3) { res.result = best; return res; }
   }
   // a reverse prosthesis has no humeral head to find
-  if (M.present && reverseInfo(ctx, opts).result) return res;
+  if (M.present && !opts.noImplant && reverseInfo(ctx, opts).result) return res;
   if (stemBody) return res; // stemmed implant of unknown type: do not guess a bony head next to it
   // ---- bony head: gradient Hough over the strongest edges
   const mags = [];
@@ -1072,7 +1074,7 @@ function headInfo(ctx, opts = {}) {
   const [p80, p97] = percentiles(Float32Array.from(mags), [80, 97]);
   if (!(p97 > 0)) return res;
   let near = null;
-  if (M.present) { // ignore edges next to small metal objects (markers, anchors)
+  if (M.present && !opts.noImplant) { // ignore edges next to small metal objects (markers, anchors)
     near = distanceTransformSq(M.mask, w, h, 1);
   }
   const px = [], py = [], nx = [], ny = [], wt = [];
@@ -1097,6 +1099,7 @@ function headInfo(ctx, opts = {}) {
     const li = discMedian(ctx, cwx, cwy, 0.5 * rw, 0.9 * rw, false, M);
     const lo = discMedian(ctx, cwx, cwy, 1.1 * rw, 1.35 * rw, false, M);
     if (!(li > lo)) continue;
+    if (opts.noImplant && M.present && li >= M.T) continue;   // a metal-dense disc is an implant the implant path missed, not bone
     const score = Math.min(1, (fit.inliers / 360) * Math.max(0, 1 - fit.rms / (0.04 * fit.r + 0.5)));
     if (!best || score > best.score) best = { cx: fit.cx, cy: fit.cy, r: fit.r, score, kind: 'bone', arcDeg: st.n1 };
   }

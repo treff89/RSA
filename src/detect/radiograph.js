@@ -21,7 +21,8 @@ export function detectXray(image, opts = {}) {
     // opts.implant is the study type the reader chose: 'reverse', 'pyc' (any humeral head replacement) or 'native'
     const implant = opts.implant === 'reverse' ? 'reverse' : opts.implant === 'native' ? 'native' : opts.implant ? 'hemi' : undefined;
     out.implant = opts.implant || null;
-    const a = implant === 'native' ? null : autoLandmarks(img, { mmPerPx, implant, axisMode: opts.axisMode, headFinder: (im) => xdet.detectHead(im) });
+    const status = {};
+    const a = implant === 'native' ? null : autoLandmarks(img, { mmPerPx, implant, axisMode: opts.axisMode, status, headFinder: (im) => xdet.detectHead(im) });
     if (a) {
       // cortices traced along the stem: canal widths, and the bone outline shown when the arm is normalised
       try {
@@ -40,7 +41,11 @@ export function detectXray(image, opts = {}) {
     }
     // no implant: native shoulder
     // native heads fill anything from a tenth (whole shoulder film) to a third (tight crop) of the short side
-    const head = xdet.detectHead(img, { mmPerPx, frLo: 0.06, frHi: 0.34 });
+    // Bright bone on a high-contrast film can pass the quick metal test for a stem, which then vetoes a bony head.
+    // When the implant pipeline found no metal at all (or the reader says the shoulder is native), look again
+    // without the metal gates.
+    let head = xdet.detectHead(img, { mmPerPx, frLo: 0.06, frHi: 0.34 });
+    if (!head && (status.noMetal || implant === 'native')) head = xdet.detectHead(img, { mmPerPx, frLo: 0.06, frHi: 0.34, noImplant: true });
     if (head) {
       out.kind = 'native'; out.confidence = 0.3 + 0.5 * (head.score || 0); out.head = head;
       // lateral is the side of the head with less bone and tissue beyond it
