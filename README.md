@@ -92,8 +92,10 @@ analysed as that type. On a radiograph **every landmark is placed automatically*
 * **Training mode teaches it your way.** Switch on *Training mode* in the Landmarks tab and every bony landmark you
   drag is recorded in this browser (localStorage): its corrected position in the implant's frame and a small
   normalised appearance patch — no image, nothing identifying. Later films are placed with the model adapted to your
-  corrections (each counts three times a corpus film). *Export corrections* writes them to a file;
-  `node test/corpus/merge-training.mjs <files…>` folds such files into the shipped model for everyone.
+  corrections (each counts three times a corpus film). *Export corrections* writes them to a file and *Add to the
+  repo* opens GitHub's upload page for `training/`: commit the file there and every build folds all of
+  `training/` into the shipped model, so the next deploy places landmarks that way for everyone. (The page itself
+  never uploads anything; that step is deliberately yours.)
 * **CT**: the implant and humeral head are detected; bony CT landmarks are placed by you.
 * **Not yet learned** (placed by you): the deltoid tuberosity, the humeral shaft diameter and centre line, and the four
   Y-view points. The supraspinatus fossa line on hemi and native films and the native acromial undersurface line start

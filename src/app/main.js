@@ -987,7 +987,9 @@ function renderTraining(item, p) {
   $('train-info').textContent = training.isOn()
     ? `Drag a misplaced landmark to where it belongs; the correction is learned. ${n} saved for ${name} films${n ? ', used to place landmarks' : ''}.`
     : n ? `${n} saved corrections for ${name} films are used to place landmarks.` : 'Teach the detector with your own corrections.';
-  $('train-export').hidden = $('train-clear').hidden = !all;
+  $('train-export').hidden = $('train-clear').hidden = $('train-repo').hidden = !all;
+  const shipped = training.inShipped();
+  if (shipped) $('train-info').textContent += ` ${shipped} of them ${shipped === 1 ? 'is' : 'are'} already built into the shared model.`;
 }
 
 function toast(text) {
@@ -1186,7 +1188,10 @@ function bind() {
     toast(!e.target.checked ? 'Training mode off: corrections are no longer recorded (the ones saved are still used).'
       : `Training mode on${n ? `: ${n} adjustment${n === 1 ? '' : 's'} you had already made ${n === 1 ? 'was' : 'were'} saved` : ''}. Drag any misplaced landmark to its true position and the correction is learned.`);
   });
-  $('train-export').addEventListener('click', () => save('rsa-check-training.json', 'application/json', training.exportText()));
+  $('train-export').addEventListener('click', () => {
+    save(`rsa-check-training-${new Date().toISOString().slice(0, 10)}.json`, 'application/json', training.exportText());
+    toast('Saved. To share it, use "Add to the repo" and drop the file on the GitHub page; the next deploy builds it in.');
+  });
   $('train-import').addEventListener('click', () => $('in-train').click());
   $('in-train').addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];

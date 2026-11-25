@@ -302,3 +302,17 @@ test('training: adapt() moves a learned landmark towards reader corrections, wei
   assert.equal(b.landmarks.gts.method, 'prior');
   assert.deepEqual(b.landmarks.gts.q, [2, 3]);
 });
+
+test('training: build-time merge validates records and lists what it merged', async () => {
+  const { validRecords, mergeModel } = await import('../../src/detect/training-merge.js');
+  const good = { type: 'reverse', id: 'acr', frame: 'scap', q: [1, 2], t: 5 };
+  const recs = validRecords({ kind: 'landmark-corrections', records: [good, { ...good, id: '<script>' }, { ...good, q: [1, NaN] }, { ...good, type: 'x' }, { ...good, q: [99, 0] }] });
+  assert.equal(recs.length, 1);
+  assert.deepEqual(validRecords({ kind: 'other', records: [good] }), []);
+  const model = { version: 1, types: { reverse: { landmarks: { acr: { frame: 'scap', method: 'prior', q: [0, 0], sd: [0.2, 0.2], n: 9 } }, lines: {} } } };
+  const m = mergeModel(model, recs);
+  assert.deepEqual(m.types.reverse.landmarks.acr.q, [0.25, 0.5]);
+  assert.equal(m.types.reverse.landmarks.acr.adapted, undefined);
+  assert.deepEqual(m.merged, ['reverse:acr:5']);
+  assert.equal(mergeModel(model, []), model);
+});

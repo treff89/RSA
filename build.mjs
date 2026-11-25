@@ -34,6 +34,26 @@ const inlineWorker = {
   },
 };
 
+// The landmark model is bundled with every reader correction committed to training/ folded in (training mode's
+// exported files), so improvements reach everyone on the next deploy without editing model.json by hand.
+const trainedModel = {
+  name: 'trained-model',
+  setup(b) {
+    b.onLoad({ filter: /[\\/]detect[\\/]model\.json$/ }, async (args) => {
+      const { validRecords, mergeModel } = await import('./src/detect/training-merge.js');
+      const model = JSON.parse(await readFile(args.path, 'utf8'));
+      const { readdir } = await import('node:fs/promises');
+      const files = existsSync('training') ? (await readdir('training')).filter((f) => f.endsWith('.json')).sort() : [];
+      const recs = [];
+      for (const f of files) {
+        try { recs.push(...validRecords(JSON.parse(await readFile(join('training', f), 'utf8')))); } catch (e) { console.warn(`training/${f}: skipped (${e.message})`); }
+      }
+      if (recs.length && !b.initialOptions.outfile.endsWith('app.js')) console.log(`landmark model: ${recs.length} reader corrections from ${files.length} file(s) in training/`);
+      return { contents: JSON.stringify(mergeModel(model, recs)), loader: 'json' };
+    });
+  },
+};
+
 const targets = [
   {
     ...common,
@@ -44,8 +64,9 @@ const targets = [
     // Emscripten glue in the codec packages references Node built-ins behind runtime checks.
     external: ['fs', 'path', 'crypto', 'node:fs', 'node:path', 'node:crypto', 'module', 'node:module', 'url', 'node:url', 'worker_threads'],
     platform: 'browser',
+    plugins: [trainedModel],
   },
-  { ...common, entryPoints: ['src/app/main.js'], outfile: `${outdir}/app.js`, format: 'iife', plugins: [inlineWorker] },
+  { ...common, entryPoints: ['src/app/main.js'], outfile: `${outdir}/app.js`, format: 'iife', plugins: [inlineWorker, trainedModel] },
 ];
 
 async function copyStatic() {

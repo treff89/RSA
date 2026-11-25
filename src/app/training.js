@@ -33,11 +33,19 @@ export function framesFor(kind, values, lateralSign) {
 }
 
 /** The model for a type with this reader's corrections folded in (the shipped model when there are none). */
+// corrections already folded into the shipped model (committed to training/ and built in) are not counted again
+const MERGED = new Set(MODEL.merged || []);
+const pending = () => T.rec.filter((r) => !MERGED.has(`${r.type}:${r.id}:${r.t}`));
+
 export function modelFor(kind) {
   const m = MODEL.types && MODEL.types[kind];
-  if (!m || !T.rec.length) return m;
-  return adapt(m, T.rec, kind);
+  const rec = pending();
+  if (!m || !rec.length) return m;
+  return adapt(m, rec, kind);
 }
+
+/** How many of the saved corrections are already in the shipped model. */
+export const inShipped = () => T.rec.length - pending().length;
 
 /** Landmarks of a type whose placement this reader's corrections change. */
 export function adaptedIds(kind) {
